@@ -19,7 +19,7 @@ PDP Log Editor是一个Rviz插件，提供日志编辑和可视化功能。主�
 1. 克隆仓库到catkin工作空间：
 ```bash
 cd ~/catkin_ws/src
-git clone https://github.com/your-repo/pdp_log_editor.git
+git clone https://github.com/fangxinyue/pdp_log_editor.git
 ```
 
 2. 安装依赖：
