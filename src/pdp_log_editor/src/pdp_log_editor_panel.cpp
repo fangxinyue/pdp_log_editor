@@ -7,6 +7,7 @@
 #include <nlohmann/json.hpp>
 #include "pdp_log_editor/PdpLogAnnotation.h"
 #include <std_msgs/String.h>
+#include <rosgraph_msgs/Clock.h>
 #include <QLabel>
 #include <QPushButton>
 #include <QVBoxLayout>
@@ -16,7 +17,7 @@
 
 namespace pdp_log_editor {
 
-PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), clicks_done_(0), manual_clicks_done_(0) {
+PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), clicks_done_(0), manual_clicks_done_(0), use_bag_time_(false) {
     auto* layout = new QVBoxLayout(this);
 
     status_label_ = new QLabel("请在3D视图中激活工具并开始标注...");
@@ -53,10 +54,13 @@ PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), cli
     load_button_ = new QPushButton("Load from JSON");
     manual_capture_button_ = new QPushButton("手动获取时间 (0/4)");
     manual_capture_button_->setStyleSheet("font-weight: bold; color: green;");
+    sync_time_button_ = new QPushButton("使用ROS时间");
+    sync_time_button_->setStyleSheet("font-weight: bold; color: orange;");
     
     layout->addWidget(save_button_);
     layout->addWidget(load_button_);
     layout->addWidget(manual_capture_button_);
+    layout->addWidget(sync_time_button_);
 
     connect(undo_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onUndo);
     connect(reset_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onReset);
@@ -64,6 +68,7 @@ PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), cli
     connect(save_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onSaveToJson);
     connect(load_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onLoadFromJson);
     connect(manual_capture_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onManualTimeCapture);
+    connect(sync_time_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onSyncTime);
 
     setLayout(layout);
     updateUI();
@@ -140,25 +145,25 @@ void PdpLogEditorPanel::onManualTimeCapture() {
         return;
     }
     
-    ros::Time current_time = ros::Time::now();
+    ros::Time current_time = getCurrentTime();
     
     // 根据点击次数设置对应的时间
     switch (manual_clicks_done_) {
         case 0:
             current_annotation_.scene_start_time = current_time;
-            status_label_->setText(QString("已捕获场景开始时间: %1").arg(current_time.toSec(), 0, 'f', 2));
+            status_label_->setText(QString("已捕获场景开始时间: %1 (%2)").arg(current_time.toSec(), 0, 'f', 2).arg(use_bag_time_ ? "Bag时间" : "ROS时间"));
             break;
         case 1:
             current_annotation_.takeover_time = current_time;
-            status_label_->setText(QString("已捕获接管时间: %1").arg(current_time.toSec(), 0, 'f', 2));
+            status_label_->setText(QString("已捕获接管时间: %1 (%2)").arg(current_time.toSec(), 0, 'f', 2).arg(use_bag_time_ ? "Bag时间" : "ROS时间"));
             break;
         case 2:
             current_annotation_.event_time = current_time;
-            status_label_->setText(QString("已捕获事件时间: %1").arg(current_time.toSec(), 0, 'f', 2));
+            status_label_->setText(QString("已捕获事件时间: %1 (%2)").arg(current_time.toSec(), 0, 'f', 2).arg(use_bag_time_ ? "Bag时间" : "ROS时间"));
             break;
         case 3:
             current_annotation_.scene_end_time = current_time;
-            status_label_->setText(QString("已捕获场景结束时间: %1").arg(current_time.toSec(), 0, 'f', 2));
+            status_label_->setText(QString("已捕获场景结束时间: %1 (%2)").arg(current_time.toSec(), 0, 'f', 2).arg(use_bag_time_ ? "Bag时间" : "ROS时间"));
             break;
     }
     
@@ -373,6 +378,57 @@ void PdpLogEditorPanel::resetManualCapture() {
     
     // 发布清空的状态
     click_event_pub_.publish(current_annotation_);
+}
+
+void PdpLogEditorPanel::onSyncTime() {
+    use_bag_time_ = !use_bag_time_;
+    
+    if (use_bag_time_) {
+        // 计算bag时间偏移
+        ros::Time ros_now = ros::Time::now();
+        ros::Time bag_now(0);
+        
+        // 尝试从/clock话题获取仿真时间
+        try {
+            rosgraph_msgs::ClockConstPtr clock_msg = ros::topic::waitForMessage<rosgraph_msgs::Clock>("/clock", ros::Duration(1.0));
+            if (clock_msg) {
+                bag_now = clock_msg->clock;
+                bag_time_offset_ = bag_now - ros_now;
+                sync_time_button_->setText(QString("使用Bag时间 (偏移: %1s)").arg(bag_time_offset_.toSec(), 0, 'f', 2));
+                sync_time_button_->setStyleSheet("font-weight: bold; color: blue;");
+                status_label_->setText("已切换到Bag时间模式");
+            } else {
+                throw std::runtime_error("无法获取/clock话题");
+            }
+        } catch (...) {
+            // 如果无法获取/clock，假设没有时间偏移
+            bag_time_offset_ = ros::Duration(0);
+            sync_time_button_->setText("使用Bag时间 (无偏移)");
+            sync_time_button_->setStyleSheet("font-weight: bold; color: purple;");
+            status_label_->setText("切换到Bag时间模式（未检测到/clock话题）");
+        }
+    } else {
+        sync_time_button_->setText("使用ROS时间");
+        sync_time_button_->setStyleSheet("font-weight: bold; color: orange;");
+        status_label_->setText("已切换到ROS系统时间模式");
+    }
+}
+
+ros::Time PdpLogEditorPanel::getCurrentTime() {
+    if (use_bag_time_) {
+        // 尝试获取当前的仿真时间
+        try {
+            rosgraph_msgs::ClockConstPtr clock_msg = ros::topic::waitForMessage<rosgraph_msgs::Clock>("/clock", ros::Duration(0.1));
+            if (clock_msg) {
+                return clock_msg->clock;
+            }
+        } catch (...) {
+            // 如果无法获取/clock，使用ROS时间加偏移
+        }
+        return ros::Time::now() + bag_time_offset_;
+    } else {
+        return ros::Time::now();
+    }
 }
 
 } // namespace pdp_log_editor

@@ -31,6 +31,7 @@ protected Q_SLOTS:
     void onSaveToJson();
     void onLoadFromJson();
     void onManualTimeCapture();  // 新增：手动时间捕获按钮
+    void onSyncTime();           // 新增：时间同步按钮
 
 private:
     // ROS 通信
@@ -51,16 +52,20 @@ private:
     QPushButton* save_button_;
     QPushButton* load_button_;
     QPushButton* manual_capture_button_;  // 新增：手动时间捕获按钮
+    QPushButton* sync_time_button_;       // 新增：时间同步按钮
     
     // 内部数据存储
     pdp_log_editor::PdpLogAnnotation current_annotation_;
     int clicks_done_;
     int manual_clicks_done_;  // 新增：手动点击计数器
+    bool use_bag_time_;       // 新增：是否使用bag时间标志
+    ros::Duration bag_time_offset_; // 新增：bag时间偏移量
 
     // ROS回调和辅助函数
     void clickUpdateCallback(const pdp_log_editor::PdpLogAnnotation::ConstPtr& msg);
     void updateUI();
     void resetManualCapture();  // 新增：重置手动捕获状态
+    ros::Time getCurrentTime(); // 新增：获取当前时间（考虑同步模式）
 };
 
 } // namespace pdp_log_editor
