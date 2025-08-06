@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>pdp_log_editor</name>
+  <version>0.0.0</version>
+  <description>The pdp_log_editor package</description>
+
+  <maintainer email="fang@example.com">fang</maintainer>
+  <license>TODO</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <build_depend>roscpp</build_depend>
+  <build_depend>rviz</build_depend>
+  <build_depend>std_msgs</build_depend>
+  <build_depend>message_generation</build_depend>
+  <build_depend>pluginlib</build_depend>
+  <build_depend>qtbase5-dev</build_depend>
+
+  <exec_depend>roscpp</exec_depend>
+  <exec_depend>rviz</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>message_runtime</exec_depend>
+  <exec_depend>pluginlib</exec_depend>
+  <exec_depend>libqt5-widgets</exec_depend>
+
+  <!-- 这是最关键的部分，它会自动处理插件的导出 -->
+  <export>
+    <rviz plugin="${prefix}/plugin_description.xml"/>
+  </export>
+</package>

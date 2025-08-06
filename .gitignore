@@ -1,0 +1,41 @@
+# ROS catkin workspace忽略文件
+
+# 编译生成的目录
+build/
+devel/
+
+# 日志文件
+logs/
+
+# catkin工具配置
+.catkin_tools/
+.catkin_workspace
+
+# IDE配置文件
+.vscode/
+.idea/
+
+# 其他工具生成的文件
+.codebuddy/
+
+# 操作系统生成的文件
+.DS_Store
+Thumbs.db
+
+# 临时文件
+*~
+*.swp
+*.swo
+
+# 测试和示例文件
+example_annotation.json
+
+# 只上传源代码，忽略所有编译产物
+*.so
+*.a
+*.o
+*.cmake
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+CTestTestfile.cmake

@@ -1,0 +1,36 @@
+# 忽略编译生成的文件
+build/
+devel/
+
+# 忽略日志文件
+*.log
+
+# 忽略备份文件
+*~
+*.bak
+*.orig
+
+# 忽略IDE配置文件
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 忽略OS生成的文件
+.DS_Store
+Thumbs.db
+
+# 忽略测试文件
+test_output/
+
+# CMake生成的文件
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# Qt MOC生成的文件
+*_autogen/
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
