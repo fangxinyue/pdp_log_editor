@@ -11,13 +11,21 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QVBoxLayout>
+#include <QHBoxLayout>
 #include <QGridLayout>
+#include <QSlider>
+#include <QDoubleSpinBox>
+#include <QPainter>
+#include <QMouseEvent>
+#include <QTimer>
 #include <ros/ros.h>
 
 
 namespace pdp_log_editor {
 
-PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), clicks_done_(0), manual_clicks_done_(0), use_bag_time_(false) {
+PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), clicks_done_(0), manual_clicks_done_(0), use_bag_time_(false),
+    timeline_start_time_(0.0), timeline_end_time_(100.0), current_timeline_time_(0.0), timeline_dragging_(false),
+    is_playing_(false), playback_speed_(1.0) {
     auto* layout = new QVBoxLayout(this);
 
     status_label_ = new QLabel("请在3D视图中激活工具并开始标注...");
@@ -25,21 +33,42 @@ PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), cli
     layout->addWidget(status_label_);
 
     auto* grid_layout = new QGridLayout();
+    
+    // 场景开始时间 - 绿色
     grid_layout->addWidget(new QLabel("场景开始:"), 0, 0);
-    start_time_label_ = new QLabel("N/A");
-    grid_layout->addWidget(start_time_label_, 0, 1);
+    start_time_spinbox_ = new QDoubleSpinBox();
+    start_time_spinbox_->setRange(-999999999999.99, 999999999999.99);
+    start_time_spinbox_->setDecimals(6);  // 增加精度以支持完整的bag时间
+    start_time_spinbox_->setValue(0.0);
+    start_time_spinbox_->setStyleSheet("background-color: #90EE90; font-weight: bold;"); // 浅绿色
+    grid_layout->addWidget(start_time_spinbox_, 0, 1);
 
+    // 接管时间 - 黄色
     grid_layout->addWidget(new QLabel("接管时间:"), 1, 0);
-    takeover_time_label_ = new QLabel("N/A");
-    grid_layout->addWidget(takeover_time_label_, 1, 1);
+    takeover_time_spinbox_ = new QDoubleSpinBox();
+    takeover_time_spinbox_->setRange(-999999999999.99, 999999999999.99);
+    takeover_time_spinbox_->setDecimals(6);  // 增加精度以支持完整的bag时间
+    takeover_time_spinbox_->setValue(0.0);
+    takeover_time_spinbox_->setStyleSheet("background-color: #FFFF99; font-weight: bold;"); // 浅黄色
+    grid_layout->addWidget(takeover_time_spinbox_, 1, 1);
 
+    // 事件时间 - 橙色
     grid_layout->addWidget(new QLabel("事件时间:"), 2, 0);
-    event_time_label_ = new QLabel("N/A");
-    grid_layout->addWidget(event_time_label_, 2, 1);
+    event_time_spinbox_ = new QDoubleSpinBox();
+    event_time_spinbox_->setRange(-999999999999.99, 999999999999.99);
+    event_time_spinbox_->setDecimals(6);  // 增加精度以支持完整的bag时间
+    event_time_spinbox_->setValue(0.0);
+    event_time_spinbox_->setStyleSheet("background-color: #FFB366; font-weight: bold;"); // 浅橙色
+    grid_layout->addWidget(event_time_spinbox_, 2, 1);
 
+    // 场景结束时间 - 红色
     grid_layout->addWidget(new QLabel("场景结束:"), 3, 0);
-    end_time_label_ = new QLabel("N/A");
-    grid_layout->addWidget(end_time_label_, 3, 1);
+    end_time_spinbox_ = new QDoubleSpinBox();
+    end_time_spinbox_->setRange(-999999999999.99, 999999999999.99);
+    end_time_spinbox_->setDecimals(6);  // 增加精度以支持完整的bag时间
+    end_time_spinbox_->setValue(0.0);
+    end_time_spinbox_->setStyleSheet("background-color: #FFB3B3; font-weight: bold;"); // 浅红色
+    grid_layout->addWidget(end_time_spinbox_, 3, 1);
 
     layout->addLayout(grid_layout);
 
@@ -54,13 +83,61 @@ PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), cli
     load_button_ = new QPushButton("Load from JSON");
     manual_capture_button_ = new QPushButton("手动获取时间 (0/4)");
     manual_capture_button_->setStyleSheet("font-weight: bold; color: green;");
-    sync_time_button_ = new QPushButton("使用ROS时间");
-    sync_time_button_->setStyleSheet("font-weight: bold; color: orange;");
+    sync_time_button_ = new QPushButton("Bag时间同步");
+    sync_time_button_->setStyleSheet("font-weight: bold; color: blue;");
     
     layout->addWidget(save_button_);
     layout->addWidget(load_button_);
     layout->addWidget(manual_capture_button_);
     layout->addWidget(sync_time_button_);
+
+    // 添加时间轴部分
+    auto* timeline_group = new QVBoxLayout();
+    
+    // 当前时间显示
+    current_time_label_ = new QLabel("当前时间: 0.00s");
+    current_time_label_->setStyleSheet("font-weight: bold; color: blue;");
+    timeline_group->addWidget(current_time_label_);
+    
+    // 播放控制按钮组
+    auto* playback_controls = new QHBoxLayout();
+    
+    play_pause_button_ = new QPushButton("播放");
+    play_pause_button_->setStyleSheet("font-weight: bold; color: green;");
+    playback_controls->addWidget(play_pause_button_);
+    
+    stop_button_ = new QPushButton("停止");
+    stop_button_->setStyleSheet("font-weight: bold; color: red;");
+    playback_controls->addWidget(stop_button_);
+    
+    // 播放速度控制
+    auto* speed_label = new QLabel("速度:");
+    playback_controls->addWidget(speed_label);
+    
+    speed_spinbox_ = new QDoubleSpinBox();
+    speed_spinbox_->setRange(0.1, 5.0);
+    speed_spinbox_->setValue(1.0);
+    speed_spinbox_->setDecimals(1);
+    speed_spinbox_->setSingleStep(0.1);
+    playback_controls->addWidget(speed_spinbox_);
+    
+    timeline_group->addLayout(playback_controls);
+    
+    // 时间轴可视化Widget
+    timeline_widget_ = new TimelineWidget(this);
+    timeline_widget_->setMinimumHeight(80);
+    timeline_widget_->setMaximumHeight(120);
+    timeline_group->addWidget(timeline_widget_);
+    
+    // 时间轴滑动条（进度条）
+    timeline_slider_ = new QSlider(Qt::Horizontal);
+    timeline_slider_->setMinimum(0);
+    timeline_slider_->setMaximum(10000);
+    timeline_slider_->setValue(0);
+    timeline_slider_->setStyleSheet("QSlider::groove:horizontal { height: 8px; background: #ddd; border-radius: 4px; } QSlider::handle:horizontal { background: #007acc; border: 1px solid #005a9e; width: 18px; margin: -2px 0; border-radius: 3px; }");
+    timeline_group->addWidget(timeline_slider_);
+    
+    layout->addLayout(timeline_group);
 
     connect(undo_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onUndo);
     connect(reset_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onReset);
@@ -69,9 +146,24 @@ PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), cli
     connect(load_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onLoadFromJson);
     connect(manual_capture_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onManualTimeCapture);
     connect(sync_time_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onSyncTime);
+    connect(timeline_slider_, &QSlider::valueChanged, this, &PdpLogEditorPanel::onTimelineChanged);
+    connect(timeline_widget_, &TimelineWidget::timestampClicked, this, &PdpLogEditorPanel::onTimestampClicked);
+    
+    // 播放控制信号连接
+    connect(play_pause_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onPlayPause);
+    connect(stop_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onStop);
+    connect(speed_spinbox_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), 
+            this, &PdpLogEditorPanel::onSpeedChanged);
 
     setLayout(layout);
+    
+    // 初始化定时器
+    timeline_update_timer_ = new QTimer(this);
+    connect(timeline_update_timer_, &QTimer::timeout, this, &PdpLogEditorPanel::updateTimelineDisplay);
+    timeline_update_timer_->start(100); // 每100ms更新一次
+    
     updateUI();
+    initializeTimeline();
 }
 
 PdpLogEditorPanel::~PdpLogEditorPanel() {}
@@ -83,6 +175,36 @@ void PdpLogEditorPanel::onInitialize() {
     control_cmd_pub_ = nh.advertise<std_msgs::String>("/pdp_log_editor/internal/control_cmd", 1);
     annotation_result_pub_ = nh.advertise<pdp_log_editor::PdpLogAnnotation>("/pdp_log_editor/annotation_result", 1, true);
     click_event_pub_ = nh.advertise<pdp_log_editor::PdpLogAnnotation>("/pdp_log_editor/internal/click_update", 1);  // 新增：用于手动时间发布
+    
+    // 订阅/clock话题用于同步时间轴
+    clock_sub_ = nh.subscribe("/clock", 10, &PdpLogEditorPanel::clockCallback, this);
+    
+    // 初始化rosbag控制服务客户端
+    // 这些服务通常由rosbag play或rqt_bag提供
+    play_service_ = nh.serviceClient<std_srvs::Empty>("/rosbag/play");
+    pause_service_ = nh.serviceClient<std_srvs::Empty>("/rosbag/pause");
+    
+    // 如果服务不存在，尝试其他常用的服务名称
+    if (!play_service_.exists() && !pause_service_.exists()) {
+        // 尝试rqt_bag的服务接口
+        play_service_ = nh.serviceClient<std_srvs::Empty>("/rqt_bag/play");
+        pause_service_ = nh.serviceClient<std_srvs::Empty>("/rqt_bag/pause");
+    }
+    
+    // 初始化timeline更新定时器
+    timeline_update_timer_ = new QTimer(this);
+    connect(timeline_update_timer_, &QTimer::timeout, this, &PdpLogEditorPanel::updateTimelineDisplay);
+    timeline_update_timer_->start(100); // 每100ms更新一次
+    
+    // 连接可编辑时间框的信号槽
+    connect(start_time_spinbox_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), 
+            this, &PdpLogEditorPanel::onStartTimeChanged);
+    connect(takeover_time_spinbox_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), 
+            this, &PdpLogEditorPanel::onTakeoverTimeChanged);
+    connect(event_time_spinbox_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), 
+            this, &PdpLogEditorPanel::onEventTimeChanged);
+    connect(end_time_spinbox_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), 
+            this, &PdpLogEditorPanel::onEndTimeChanged);
 }
 
 void PdpLogEditorPanel::onUndo() {
@@ -145,25 +267,40 @@ void PdpLogEditorPanel::onManualTimeCapture() {
         return;
     }
     
-    ros::Time current_time = getCurrentTime();
+    // 使用时间轴当前时间，确保与bag时间一致
+    double time_value = current_timeline_time_;
+    ros::Time current_time;
+    current_time.fromSec(time_value);
     
-    // 根据点击次数设置对应的时间
+    // 根据点击次数设置对应的时间并更新相应的编辑框
     switch (manual_clicks_done_) {
         case 0:
             current_annotation_.scene_start_time = current_time;
-            status_label_->setText(QString("已捕获场景开始时间: %1 (%2)").arg(current_time.toSec(), 0, 'f', 2).arg(use_bag_time_ ? "Bag时间" : "ROS时间"));
+            start_time_spinbox_->blockSignals(true);
+            start_time_spinbox_->setValue(time_value);
+            start_time_spinbox_->blockSignals(false);
+            status_label_->setText(QString("已捕获场景开始时间: %1s (Bag时间)").arg(time_value, 0, 'f', 2));
             break;
         case 1:
             current_annotation_.takeover_time = current_time;
-            status_label_->setText(QString("已捕获接管时间: %1 (%2)").arg(current_time.toSec(), 0, 'f', 2).arg(use_bag_time_ ? "Bag时间" : "ROS时间"));
+            takeover_time_spinbox_->blockSignals(true);
+            takeover_time_spinbox_->setValue(time_value);
+            takeover_time_spinbox_->blockSignals(false);
+            status_label_->setText(QString("已捕获接管时间: %1s (Bag时间)").arg(time_value, 0, 'f', 2));
             break;
         case 2:
             current_annotation_.event_time = current_time;
-            status_label_->setText(QString("已捕获事件时间: %1 (%2)").arg(current_time.toSec(), 0, 'f', 2).arg(use_bag_time_ ? "Bag时间" : "ROS时间"));
+            event_time_spinbox_->blockSignals(true);
+            event_time_spinbox_->setValue(time_value);
+            event_time_spinbox_->blockSignals(false);
+            status_label_->setText(QString("已捕获事件时间: %1s (Bag时间)").arg(time_value, 0, 'f', 2));
             break;
         case 3:
             current_annotation_.scene_end_time = current_time;
-            status_label_->setText(QString("已捕获场景结束时间: %1 (%2)").arg(current_time.toSec(), 0, 'f', 2).arg(use_bag_time_ ? "Bag时间" : "ROS时间"));
+            end_time_spinbox_->blockSignals(true);
+            end_time_spinbox_->setValue(time_value);
+            end_time_spinbox_->blockSignals(false);
+            status_label_->setText(QString("已捕获场景结束时间: %1s (Bag时间)").arg(time_value, 0, 'f', 2));
             break;
     }
     
@@ -207,10 +344,22 @@ void PdpLogEditorPanel::clickUpdateCallback(const pdp_log_editor::PdpLogAnnotati
 }
 
 void PdpLogEditorPanel::updateUI() {
-    start_time_label_->setText(current_annotation_.scene_start_time.toSec() > 0 ? QString::number(current_annotation_.scene_start_time.toSec(), 'f', 2) : "N/A");
-    takeover_time_label_->setText(current_annotation_.takeover_time.toSec() > 0 ? QString::number(current_annotation_.takeover_time.toSec(), 'f', 2) : "N/A");
-    event_time_label_->setText(current_annotation_.event_time.toSec() > 0 ? QString::number(current_annotation_.event_time.toSec(), 'f', 2) : "N/A");
-    end_time_label_->setText(current_annotation_.scene_end_time.toSec() > 0 ? QString::number(current_annotation_.scene_end_time.toSec(), 'f', 2) : "N/A");
+    // 更新可编辑时间框的显示（阻塞信号防止循环触发）
+    start_time_spinbox_->blockSignals(true);
+    start_time_spinbox_->setValue(current_annotation_.scene_start_time.toSec());
+    start_time_spinbox_->blockSignals(false);
+    
+    takeover_time_spinbox_->blockSignals(true);
+    takeover_time_spinbox_->setValue(current_annotation_.takeover_time.toSec());
+    takeover_time_spinbox_->blockSignals(false);
+    
+    event_time_spinbox_->blockSignals(true);
+    event_time_spinbox_->setValue(current_annotation_.event_time.toSec());
+    event_time_spinbox_->blockSignals(false);
+    
+    end_time_spinbox_->blockSignals(true);
+    end_time_spinbox_->setValue(current_annotation_.scene_end_time.toSec());
+    end_time_spinbox_->blockSignals(false);
 
     switch (clicks_done_) {
         case 0: status_label_->setText("请点击以标注【场景开始时间】"); break;
@@ -220,6 +369,9 @@ void PdpLogEditorPanel::updateUI() {
         case 4: status_label_->setText("标注已完成，可点击发布"); break;
         default: break;
     }
+    
+    // 更新时间轴显示
+    updateTimelinePosition();
 }
 
 void PdpLogEditorPanel::save(rviz::Config config) const {
@@ -381,53 +533,601 @@ void PdpLogEditorPanel::resetManualCapture() {
 }
 
 void PdpLogEditorPanel::onSyncTime() {
-    use_bag_time_ = !use_bag_time_;
+    // 显示当前时间信息
+    double bag_time = current_timeline_time_;
+    ros::Time ros_now = ros::Time::now();
     
-    if (use_bag_time_) {
-        // 计算bag时间偏移
-        ros::Time ros_now = ros::Time::now();
-        ros::Time bag_now(0);
-        
-        // 尝试从/clock话题获取仿真时间
-        try {
-            rosgraph_msgs::ClockConstPtr clock_msg = ros::topic::waitForMessage<rosgraph_msgs::Clock>("/clock", ros::Duration(1.0));
-            if (clock_msg) {
-                bag_now = clock_msg->clock;
-                bag_time_offset_ = bag_now - ros_now;
-                sync_time_button_->setText(QString("使用Bag时间 (偏移: %1s)").arg(bag_time_offset_.toSec(), 0, 'f', 2));
-                sync_time_button_->setStyleSheet("font-weight: bold; color: blue;");
-                status_label_->setText("已切换到Bag时间模式");
-            } else {
-                throw std::runtime_error("无法获取/clock话题");
-            }
-        } catch (...) {
-            // 如果无法获取/clock，假设没有时间偏移
-            bag_time_offset_ = ros::Duration(0);
-            sync_time_button_->setText("使用Bag时间 (无偏移)");
-            sync_time_button_->setStyleSheet("font-weight: bold; color: purple;");
-            status_label_->setText("切换到Bag时间模式（未检测到/clock话题）");
-        }
-    } else {
-        sync_time_button_->setText("使用ROS时间");
-        sync_time_button_->setStyleSheet("font-weight: bold; color: orange;");
-        status_label_->setText("已切换到ROS系统时间模式");
-    }
+    sync_time_button_->setText(QString("Bag时间: %1s").arg(bag_time, 0, 'f', 2));
+    sync_time_button_->setStyleSheet("font-weight: bold; color: blue;");
+    status_label_->setText(QString("当前使用Bag时间: %1s, ROS时间: %2s").arg(bag_time, 0, 'f', 2).arg(ros_now.toSec(), 0, 'f', 2));
 }
 
 ros::Time PdpLogEditorPanel::getCurrentTime() {
-    if (use_bag_time_) {
-        // 尝试获取当前的仿真时间
-        try {
-            rosgraph_msgs::ClockConstPtr clock_msg = ros::topic::waitForMessage<rosgraph_msgs::Clock>("/clock", ros::Duration(0.1));
-            if (clock_msg) {
-                return clock_msg->clock;
-            }
-        } catch (...) {
-            // 如果无法获取/clock，使用ROS时间加偏移
-        }
-        return ros::Time::now() + bag_time_offset_;
+    // 总是使用当前时间轴时间（来自/clock话题的bag时间）
+    ros::Time bag_time;
+    bag_time.fromSec(current_timeline_time_);
+    return bag_time;
+}
+
+void PdpLogEditorPanel::onTimelineChanged(int value) {
+    current_timeline_time_ = sliderValueToTimestamp(value);
+    current_time_label_->setText(QString("当前时间: %1s").arg(current_timeline_time_, 0, 'f', 2));
+    timeline_widget_->setCurrentTime(current_timeline_time_);
+    
+    // 检查rosbag进程是否存在
+    int rosbag_running = system("pgrep -f 'rosbag play' > /dev/null 2>&1");
+    
+    if (rosbag_running != 0) {
+        status_label_->setText("警告：未检测到rosbag play进程，无法跳转时间");
+        return;
+    }
+    
+    // 发布时间跳转命令到rosbag - 使用正确的格式
+    std::string seek_command = "seek " + std::to_string(current_timeline_time_);
+    publishPlaybackCommand(seek_command);
+    
+    // 同时尝试直接的rosbag交互式命令
+    std::string interactive_cmd = "s " + std::to_string(current_timeline_time_);
+    int result = system(("echo '" + interactive_cmd + "\\n' > /proc/$(pgrep -f 'rosbag play')/fd/0 2>/dev/null").c_str());
+    
+    if (result == 0) {
+        status_label_->setText(QString("跳转到时间: %1s").arg(current_timeline_time_, 0, 'f', 2));
+        ROS_INFO("成功发送时间跳转命令: %f", current_timeline_time_);
     } else {
-        return ros::Time::now();
+        status_label_->setText(QString("时间跳转可能失败，目标时间: %1s").arg(current_timeline_time_, 0, 'f', 2));
+        ROS_WARN("Failed to send seek command to rosbag process");
+    }
+}
+
+void PdpLogEditorPanel::onTimestampClicked(int timestamp_type) {
+    // 将当前时间轴时间设置为指定的时间戳
+    switch (timestamp_type) {
+        case 0: // start_time
+            current_annotation_.scene_start_time.fromSec(current_timeline_time_);
+            status_label_->setText(QString("已设置场景开始时间: %1s").arg(current_timeline_time_, 0, 'f', 2));
+            break;
+        case 1: // takeover
+            current_annotation_.takeover_time.fromSec(current_timeline_time_);
+            status_label_->setText(QString("已设置接管时间: %1s").arg(current_timeline_time_, 0, 'f', 2));
+            break;
+        case 2: // event
+            current_annotation_.event_time.fromSec(current_timeline_time_);
+            status_label_->setText(QString("已设置事件时间: %1s").arg(current_timeline_time_, 0, 'f', 2));
+            break;
+        case 3: // end_time
+            current_annotation_.scene_end_time.fromSec(current_timeline_time_);
+            status_label_->setText(QString("已设置场景结束时间: %1s").arg(current_timeline_time_, 0, 'f', 2));
+            break;
+    }
+    
+    updateUI();
+    updateTimelinePosition();
+    
+    // 发布更新
+    click_event_pub_.publish(current_annotation_);
+}
+
+void PdpLogEditorPanel::initializeTimeline() {
+    // 初始化时间轴范围（可以从ROS参数或配置文件读取）
+    timeline_start_time_ = 0.0;
+    timeline_end_time_ = 300.0; // 默认5分钟
+    
+    timeline_widget_->setTimeRange(timeline_start_time_, timeline_end_time_);
+    updateTimelinePosition();
+}
+
+void PdpLogEditorPanel::updateTimelinePosition() {
+    // 更新时间轴上的时间戳显示
+    timeline_widget_->setTimestamps(
+        current_annotation_.scene_start_time.toSec(),
+        current_annotation_.takeover_time.toSec(),
+        current_annotation_.event_time.toSec(),
+        current_annotation_.scene_end_time.toSec()
+    );
+    
+    // 更新滑动条位置
+    int slider_pos = timestampToSliderValue(current_timeline_time_);
+    timeline_slider_->blockSignals(true);
+    timeline_slider_->setValue(slider_pos);
+    timeline_slider_->blockSignals(false);
+}
+
+double PdpLogEditorPanel::timestampToSliderValue(double timestamp) {
+    if (timeline_end_time_ <= timeline_start_time_) return 0;
+    
+    double ratio = (timestamp - timeline_start_time_) / (timeline_end_time_ - timeline_start_time_);
+    ratio = std::max(0.0, std::min(1.0, ratio));
+    return ratio * timeline_slider_->maximum();
+}
+
+double PdpLogEditorPanel::sliderValueToTimestamp(int slider_value) {
+    double ratio = double(slider_value) / timeline_slider_->maximum();
+    return timeline_start_time_ + ratio * (timeline_end_time_ - timeline_start_time_);
+}
+
+//////////////////////////////////////////
+// TimelineWidget 实现
+//////////////////////////////////////////
+
+TimelineWidget::TimelineWidget(QWidget* parent) : QWidget(parent), start_time_(0), end_time_(100), current_time_(0), 
+    widget_width_(400), dragging_timestamp_(-1) {
+    
+    // 设置不同时间戳的颜色
+    timestamp_colors_[0] = QColor(0, 255, 0);     // 场景开始 - 绿色
+    timestamp_colors_[1] = QColor(255, 255, 0);   // 接管时间 - 黄色  
+    timestamp_colors_[2] = QColor(255, 165, 0);   // 事件时间 - 橙色
+    timestamp_colors_[3] = QColor(255, 0, 0);     // 场景结束 - 红色
+    
+    // 初始化时间戳
+    for (int i = 0; i < 4; i++) {
+        timestamps_[i] = 0.0;
+    }
+    
+    setMouseTracking(true);
+}
+
+void TimelineWidget::setTimeRange(double start_time, double end_time) {
+    start_time_ = start_time;
+    end_time_ = end_time;
+    update();
+}
+
+void TimelineWidget::setTimestamps(double start, double takeover, double event, double end) {
+    timestamps_[0] = start;
+    timestamps_[1] = takeover;
+    timestamps_[2] = event;
+    timestamps_[3] = end;
+    update();
+}
+
+void TimelineWidget::setCurrentTime(double current_time) {
+    current_time_ = current_time;
+    update();
+}
+
+void TimelineWidget::paintEvent(QPaintEvent* event) {
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing);
+    
+    widget_width_ = width();
+    int height = this->height();
+    int timeline_y = height / 2;
+    int margin = 20;
+    
+    // 绘制时间轴背景
+    painter.setPen(QPen(Qt::black, 2));
+    painter.drawLine(margin, timeline_y, widget_width_ - margin, timeline_y);
+    
+    // 绘制时间刻度
+    painter.setPen(QPen(Qt::gray, 1));
+    QFont font = painter.font();
+    font.setPointSize(8);
+    painter.setFont(font);
+    
+    for (int i = 0; i <= 10; i++) {
+        int x = margin + i * (widget_width_ - 2 * margin) / 10;
+        painter.drawLine(x, timeline_y - 5, x, timeline_y + 5);
+        
+        double time_value = start_time_ + i * (end_time_ - start_time_) / 10;
+        painter.drawText(x - 15, timeline_y + 20, QString::number(time_value, 'f', 1));
+    }
+    
+    // 绘制当前时间指示器
+    if (current_time_ >= start_time_ && current_time_ <= end_time_) {
+        int current_x = timeToPixel(current_time_);
+        painter.setPen(QPen(Qt::blue, 3));
+        painter.drawLine(current_x, 10, current_x, height - 10);
+        
+        // 绘制当前时间标签
+        painter.setPen(QPen(Qt::blue));
+        painter.drawText(current_x - 20, 8, QString("%1s").arg(current_time_, 0, 'f', 1));
+    }
+    
+    // 绘制时间戳标记
+    for (int i = 0; i < 4; i++) {
+        if (timestamps_[i] > 0 && timestamps_[i] >= start_time_ && timestamps_[i] <= end_time_) {
+            int x = timeToPixel(timestamps_[i]);
+            
+            // 绘制时间戳标记
+            painter.setPen(QPen(timestamp_colors_[i], 2));
+            painter.setBrush(QBrush(timestamp_colors_[i]));
+            
+            // 绘制菱形标记
+            QPolygon diamond;
+            diamond << QPoint(x, timeline_y - 10) << QPoint(x + 8, timeline_y) 
+                   << QPoint(x, timeline_y + 10) << QPoint(x - 8, timeline_y);
+            painter.drawPolygon(diamond);
+            
+            // 绘制时间戳标签
+            painter.setPen(QPen(timestamp_colors_[i]));
+            QString label;
+            switch (i) {
+                case 0: label = "开始"; break;
+                case 1: label = "接管"; break;
+                case 2: label = "事件"; break;
+                case 3: label = "结束"; break;
+            }
+            painter.drawText(x - 15, timeline_y - 15, label);
+            painter.drawText(x - 20, timeline_y + 30, QString::number(timestamps_[i], 'f', 1));
+        }
+    }
+}
+
+void TimelineWidget::mousePressEvent(QMouseEvent* event) {
+    if (event->button() == Qt::LeftButton) {
+        int clicked_timestamp = getTimestampAtPosition(event->x(), event->y());
+        if (clicked_timestamp >= 0) {
+            dragging_timestamp_ = clicked_timestamp;
+        } else {
+            // 点击时间轴设置当前时间
+            double clicked_time = pixelToTime(event->x());
+            emit timestampClicked(-1); // 表示点击时间轴，而不是特定时间戳
+        }
+    }
+}
+
+void TimelineWidget::mouseMoveEvent(QMouseEvent* event) {
+    if (dragging_timestamp_ >= 0) {
+        double new_time = pixelToTime(event->x());
+        new_time = std::max(start_time_, std::min(end_time_, new_time));
+        timestamps_[dragging_timestamp_] = new_time;
+        update();
+        
+        // 发送时间戳更改信号
+        emit timestampClicked(dragging_timestamp_);
+    }
+}
+
+void TimelineWidget::resizeEvent(QResizeEvent* event) {
+    widget_width_ = width();
+    update();
+}
+
+double TimelineWidget::pixelToTime(int pixel_x) {
+    int margin = 20;
+    int effective_width = widget_width_ - 2 * margin;
+    if (effective_width <= 0) return start_time_;
+    
+    double ratio = double(pixel_x - margin) / effective_width;
+    ratio = std::max(0.0, std::min(1.0, ratio));
+    return start_time_ + ratio * (end_time_ - start_time_);
+}
+
+int TimelineWidget::timeToPixel(double time) {
+    int margin = 20;
+    int effective_width = widget_width_ - 2 * margin;
+    if (end_time_ <= start_time_) return margin;
+    
+    double ratio = (time - start_time_) / (end_time_ - start_time_);
+    return margin + int(ratio * effective_width);
+}
+
+int TimelineWidget::getTimestampAtPosition(int x, int y) {
+    int timeline_y = height() / 2;
+    
+    for (int i = 0; i < 4; i++) {
+        if (timestamps_[i] > 0) {
+            int timestamp_x = timeToPixel(timestamps_[i]);
+            if (abs(x - timestamp_x) < 15 && abs(y - timeline_y) < 15) {
+                return i;
+            }
+        }
+    }
+    return -1;
+}
+
+// 可编辑时间框的槽函数实现
+void PdpLogEditorPanel::onStartTimeChanged(double value) {
+    current_annotation_.scene_start_time.fromSec(value);
+    updateUI();
+    // 发布更新
+    click_event_pub_.publish(current_annotation_);
+}
+
+void PdpLogEditorPanel::onTakeoverTimeChanged(double value) {
+    current_annotation_.takeover_time.fromSec(value);
+    updateUI();
+    // 发布更新
+    click_event_pub_.publish(current_annotation_);
+}
+
+void PdpLogEditorPanel::onEventTimeChanged(double value) {
+    current_annotation_.event_time.fromSec(value);
+    updateUI();
+    // 发布更新
+    click_event_pub_.publish(current_annotation_);
+}
+
+void PdpLogEditorPanel::onEndTimeChanged(double value) {
+    current_annotation_.scene_end_time.fromSec(value);
+    updateUI();
+    // 发布更新
+    click_event_pub_.publish(current_annotation_);
+}
+
+// /clock话题回调 - 用于与rosbag同步
+void PdpLogEditorPanel::clockCallback(const rosgraph_msgs::Clock::ConstPtr& msg) {
+    double current_time = msg->clock.toSec();
+    
+    // 更新当前时间轴时间
+    current_timeline_time_ = current_time;
+    
+    // 如果时间超出范围，动态调整时间轴范围
+    if (current_time > timeline_end_time_) {
+        timeline_end_time_ = current_time + 10.0; // 延长10秒
+        timeline_widget_->setTimeRange(timeline_start_time_, timeline_end_time_);
+    }
+    if (current_time < timeline_start_time_) {
+        timeline_start_time_ = current_time - 10.0; // 提前10秒
+        timeline_widget_->setTimeRange(timeline_start_time_, timeline_end_time_);
+    }
+}
+
+// 更新时间轴显示
+void PdpLogEditorPanel::updateTimelineDisplay() {
+    // 更新当前时间显示
+    current_time_label_->setText(QString("当前时间: %1s").arg(current_timeline_time_, 0, 'f', 2));
+    
+    // 更新时间轴widget的当前时间
+    timeline_widget_->setCurrentTime(current_timeline_time_);
+    
+    // 更新进度条位置（阻塞信号防止循环）
+    timeline_slider_->blockSignals(true);
+    int slider_pos = timestampToSliderValue(current_timeline_time_);
+    timeline_slider_->setValue(slider_pos);
+    timeline_slider_->blockSignals(false);
+    
+    // 检测rosbag进程状态
+    static double last_update_time = current_timeline_time_;
+    static int update_counter = 0;
+    
+    update_counter++;
+    if (update_counter % 10 == 0) { // 每1秒检查一次（100ms * 10）
+        // 检查rosbag进程是否存在
+        int rosbag_running = system("pgrep -f 'rosbag play' > /dev/null 2>&1");
+        
+        if (rosbag_running == 0) {
+            // rosbag进程存在，检查是否在播放
+            bool time_progressing = (current_timeline_time_ != last_update_time);
+            
+            if (time_progressing && !is_playing_) {
+                // 时间在进展但按钮显示为暂停状态，同步状态
+                is_playing_ = true;
+                play_pause_button_->setText("暂停");
+                play_pause_button_->setStyleSheet("font-weight: bold; color: orange;");
+            } else if (!time_progressing && is_playing_) {
+                // 时间没有进展但按钮显示为播放状态，可能是暂停了
+                // 不自动更改状态，让用户手动控制
+            }
+            
+            // 显示rosbag状态信息
+            if (update_counter % 50 == 0) { // 每5秒显示一次状态
+                if (time_progressing) {
+                    sync_time_button_->setText(QString("播放中: %1s").arg(current_timeline_time_, 0, 'f', 1));
+                    sync_time_button_->setStyleSheet("font-weight: bold; color: green;");
+                } else {
+                    sync_time_button_->setText(QString("已暂停: %1s").arg(current_timeline_time_, 0, 'f', 1));
+                    sync_time_button_->setStyleSheet("font-weight: bold; color: yellow;");
+                }
+            }
+        } else {
+            // rosbag进程不存在
+            if (is_playing_) {
+                is_playing_ = false;
+                play_pause_button_->setText("播放");
+                play_pause_button_->setStyleSheet("font-weight: bold; color: green;");
+                status_label_->setText("Rosbag进程已停止");
+            }
+            
+            // 提示用户启动rosbag
+            if (update_counter % 50 == 0) { // 每5秒提示一次
+                sync_time_button_->setText("未检测到Rosbag");
+                sync_time_button_->setStyleSheet("font-weight: bold; color: red;");
+            }
+        }
+        
+        last_update_time = current_timeline_time_;
+    }
+}
+
+// 播放/暂停控制
+void PdpLogEditorPanel::onPlayPause() {
+    // 首先检查rosbag进程是否存在
+    int rosbag_running = system("pgrep -f 'rosbag play' > /dev/null 2>&1");
+    
+    if (rosbag_running != 0) {
+        // rosbag进程不存在
+        status_label_->setText("错误：未检测到rosbag play进程！请先启动 rosbag play");
+        ROS_WARN("No rosbag play process found. Please start rosbag play first.");
+        return;
+    }
+    
+    if (is_playing_) {
+        // 当前正在播放，点击暂停
+        is_playing_ = false;
+        play_pause_button_->setText("播放");
+        play_pause_button_->setStyleSheet("font-weight: bold; color: green;");
+        status_label_->setText("发送暂停命令到rosbag");
+        
+        // 发送暂停命令 - 使用多种方法
+        publishPlaybackCommand("pause");
+        
+        // 直接发送空格键到rosbag进程（最可靠的方法）
+        int result = system("echo ' ' > /proc/$(pgrep -f 'rosbag play')/fd/0 2>/dev/null");
+        if (result == 0) {
+            ROS_INFO("成功发送暂停命令到rosbag进程");
+        } else {
+            ROS_WARN("无法通过/proc发送命令到rosbag进程");
+            // 尝试其他方法
+            system("pkill -USR1 -f 'rosbag play' 2>/dev/null || true");
+        }
+        
+        ROS_INFO("Pausing rosbag playback");
+    } else {
+        // 当前已暂停，点击播放
+        is_playing_ = true;
+        play_pause_button_->setText("暂停");
+        play_pause_button_->setStyleSheet("font-weight: bold; color: orange;");
+        status_label_->setText("发送播放命令到rosbag");
+        
+        // 发送播放命令
+        publishPlaybackCommand("play");
+        
+        // 直接发送空格键到rosbag进程（恢复播放）
+        int result = system("echo ' ' > /proc/$(pgrep -f 'rosbag play')/fd/0 2>/dev/null");
+        if (result == 0) {
+            ROS_INFO("成功发送播放命令到rosbag进程");
+        } else {
+            ROS_WARN("无法通过/proc发送命令到rosbag进程");
+            // 尝试其他方法
+            system("pkill -USR2 -f 'rosbag play' 2>/dev/null || true");
+        }
+        
+        ROS_INFO("Resuming rosbag playback");
+    }
+}
+
+// 停止播放
+void PdpLogEditorPanel::onStop() {
+    // 检查rosbag进程是否存在
+    int rosbag_running = system("pgrep -f 'rosbag play' > /dev/null 2>&1");
+    
+    if (rosbag_running != 0) {
+        status_label_->setText("未检测到rosbag play进程");
+        ROS_INFO("No rosbag play process to stop");
+        return;
+    }
+    
+    is_playing_ = false;
+    play_pause_button_->setText("播放");
+    play_pause_button_->setStyleSheet("font-weight: bold; color: green;");
+    
+    // 发布停止命令
+    publishPlaybackCommand("stop");
+    
+    // 多种方法停止rosbag
+    // 1. 优雅退出 - 发送'q'键
+    int result1 = system("echo 'q' > /proc/$(pgrep -f 'rosbag play')/fd/0 2>/dev/null");
+    
+    // 2. 等待一秒看是否成功退出
+    sleep(1);
+    int still_running = system("pgrep -f 'rosbag play' > /dev/null 2>&1");
+    
+    if (still_running == 0) {
+        // 进程仍在运行，使用SIGTERM
+        ROS_WARN("优雅退出失败，使用SIGTERM");
+        system("pkill -TERM -f 'rosbag play' 2>/dev/null");
+        
+        // 再等待一秒
+        sleep(1);
+        still_running = system("pgrep -f 'rosbag play' > /dev/null 2>&1");
+        
+        if (still_running == 0) {
+            // 强制终止
+            ROS_WARN("SIGTERM失败，强制终止");
+            system("pkill -KILL -f 'rosbag play' 2>/dev/null");
+            status_label_->setText("强制停止rosbag进程");
+        } else {
+            status_label_->setText("rosbag进程已优雅停止");
+        }
+    } else {
+        status_label_->setText("rosbag进程已停止");
+    }
+    
+    ROS_INFO("Stopped rosbag playback");
+}
+
+// 播放速度变化
+void PdpLogEditorPanel::onSpeedChanged(double speed) {
+    playback_speed_ = speed;
+    
+    // 发布速度控制命令
+    std::string rate_command = "set_rate " + std::to_string(speed);
+    publishPlaybackCommand(rate_command);
+    
+    // 同时尝试直接的rosbag交互式命令
+    std::string interactive_cmd = "r " + std::to_string(speed);
+    system(("echo '" + interactive_cmd + "\\n' > /proc/$(pgrep -f 'rosbag play')/fd/0 2>/dev/null || true").c_str());
+    
+    status_label_->setText(QString("播放速度设置为: %1x").arg(speed, 0, 'f', 1));
+    ROS_INFO("Setting rosbag playback rate to: %f", speed);
+}
+
+// 发布播放控制命令
+void PdpLogEditorPanel::publishPlaybackCommand(const std::string& command) {
+    std_msgs::String cmd_msg;
+    cmd_msg.data = command;
+    
+    // 使用多种方法尝试控制rosbag
+    static ros::Publisher control_pub;
+    static ros::Publisher pause_pub;
+    static ros::Publisher seek_pub;
+    static bool pubs_initialized = false;
+    
+    if (!pubs_initialized) {
+        ros::NodeHandle nh;
+        // 标准rosbag控制话题
+        control_pub = nh.advertise<std_msgs::String>("/rosbag/control", 1);
+        // 暂停/恢复话题（某些版本的rosbag支持）
+        pause_pub = nh.advertise<std_msgs::String>("/rosbag/pause", 1);
+        // 时间跳转话题
+        seek_pub = nh.advertise<std_msgs::String>("/rosbag/seek", 1);
+        pubs_initialized = true;
+        
+        // 等待话题连接
+        ros::Duration(0.1).sleep();
+    }
+    
+    // 根据命令类型发布到相应话题
+    if (command == "play") {
+        // 播放命令
+        cmd_msg.data = "play";
+        control_pub.publish(cmd_msg);
+        pause_pub.publish(cmd_msg);
+        
+        // 通过系统调用发送空格键到rosbag（恢复播放）
+        system("echo ' ' > /proc/$(pgrep -f 'rosbag play')/fd/0 2>/dev/null || true");
+        
+        ROS_INFO("发送播放命令到rosbag");
+    } else if (command == "pause") {
+        // 暂停命令
+        cmd_msg.data = "pause";
+        control_pub.publish(cmd_msg);
+        pause_pub.publish(cmd_msg);
+        
+        // 通过系统调用发送空格键到rosbag（暂停播放）
+        system("echo ' ' > /proc/$(pgrep -f 'rosbag play')/fd/0 2>/dev/null || true");
+        
+        ROS_INFO("发送暂停命令到rosbag");
+    } else if (command.find("seek") != std::string::npos) {
+        seek_pub.publish(cmd_msg);
+        
+        // 对于时间跳转，提取时间值并尝试发送's'命令
+        size_t space_pos = command.find(' ');
+        if (space_pos != std::string::npos) {
+            std::string time_str = command.substr(space_pos + 1);
+            std::string seek_cmd = "s " + time_str;
+            system(("echo '" + seek_cmd + "' > /proc/$(pgrep -f 'rosbag play')/fd/0 2>/dev/null || true").c_str());
+        }
+        
+        ROS_INFO("发送时间跳转命令到rosbag: %s", command.c_str());
+    } else if (command.find("set_rate") != std::string::npos) {
+        // 速度控制命令
+        control_pub.publish(cmd_msg);
+        
+        // 提取速度值并发送'r'命令
+        size_t space_pos = command.find(' ');
+        if (space_pos != std::string::npos) {
+            std::string rate_str = command.substr(space_pos + 1);
+            std::string rate_cmd = "r " + rate_str;
+            system(("echo '" + rate_cmd + "' > /proc/$(pgrep -f 'rosbag play')/fd/0 2>/dev/null || true").c_str());
+        }
+        
+        ROS_INFO("发送速度控制命令到rosbag: %s", command.c_str());
+    } else {
+        // 其他命令直接发送
+        control_pub.publish(cmd_msg);
+        ROS_INFO("发布rosbag控制命令: %s", command.c_str());
     }
 }
 

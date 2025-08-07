@@ -1,51 +1,65 @@
-# PDP Log Editor - Rviz Plugin
+# PDP Log Editor - RViz Plugin for Driving Scenario Time Annotation
 
 ## 项目概述
-PDP Log Editor是一个Rviz插件，提供日志编辑和可视化功能。主要功能包括：
-- 日志标记和注释
-- 时间轴导航
-- 自定义可视化工具
+PDP Log Editor是一个RViz插件，专门用于驾驶场景的时间标注。主要功能包括：
+- **4时间戳标注系统**: start_time → takeover → event → end_time
+- **手动时间捕获**: 按钮式时间戳获取
+- **3D场景交互**: 鼠标点击进行标注
+- **时间同步功能**: 支持ROS时间和Bag播放时间切换
+- **JSON文件I/O**: 保存和加载标注数据
 
 ## 安装指南
 
 ### 依赖项
 - ROS Noetic
-- Rviz
+- RViz
 - Qt5
-- Boost
+- nlohmann/json
+- rosgraph_msgs
 
 ### 安装步骤
 1. 克隆仓库到catkin工作空间：
 ```bash
 cd ~/catkin_ws/src
-git clone https://github.com/your-repo/pdp_log_editor.git
+git clone https://gitlab.zhidaoauto.com/fangxinyue/pdp_log_editor.git
 ```
 
-2. 安装依赖：
-```bash
-rosdep install --from-paths . --ignore-src -y
-```
-
-3. 编译项目：
+2. 编译项目：
 ```bash
 cd ~/catkin_ws
-catkin build pdp_log_editor
+catkin_make
 source devel/setup.bash
+```
+
+## 快速启动
+
+### 方法1：使用Launch文件（推荐）
+```bash
+cd ~/catkin_ws
+source devel/setup.bash
+roslaunch pdp_log_editor rviz.launch
+```
+
+### 方法2：使用启动脚本
+```bash
+cd ~/catkin_ws/src/pdp_log_editor
+./launch_rviz.sh
+```
+
+### 方法3：手动启动
+```bash
+cd ~/catkin_ws
+source devel/setup.bash
+rviz -d src/pdp_log_editor/myconfig.rviz
 ```
 
 ## 使用说明
 
-### 启动插件
-1. 启动Rviz：
-```bash
-rosrun rviz rviz
-```
+### 插件设置
+1. **添加面板**: Panels → Add New Panel → pdp_log_editor/PdpLogEditorPanel
+2. **激活工具**: Tools → pdp_log_editor/PdpLogEditorTool
 
-2. 添加PDP Log Editor面板：
-- 点击菜单栏的"Panels" > "Add New Panel"
-- 选择"pdp_log_editor/PdpLogEditorPanel"
-
-### 基本操作
+### 时间标注功能
 - 使用工具栏按钮加载日志文件
 - 右键点击时间轴添加标记
 - 使用快捷键导航日志
