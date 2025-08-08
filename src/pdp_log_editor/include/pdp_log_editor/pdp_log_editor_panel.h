@@ -97,6 +97,7 @@ private:
     double playback_speed_;       // 播放速度
     ros::Subscriber clock_sub_;   // /clock话题订阅器
     QTimer* timeline_update_timer_; // 时间轴更新定时器
+    int user_operation_delay_;    // 用户操作延迟保护计数器（防止自动状态同步干扰）
     
     // rosbag控制服务客户端
     ros::ServiceClient play_service_;
@@ -114,6 +115,7 @@ private:
     double timestampToSliderValue(double timestamp); // 新增：时间戳转滑动条值
     double sliderValueToTimestamp(int slider_value); // 新增：滑动条值转时间戳
     void publishPlaybackCommand(const std::string& command); // 新增：发布播放控制命令
+    void checkRosbagStatus(); // 新增：检查rosbag状态
 };
 
 // 自定义时间轴可视化Widget
