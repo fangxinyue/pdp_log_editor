@@ -40,23 +40,20 @@ protected Q_SLOTS:
     void onPublish();
     void onSaveToJson();
     void onLoadFromJson();
-    void onLoadBagInfo();           // 新增：从rosbag加载时间轴范围
-    void onManualTimeCapture();  // 新增：手动时间捕获按钮
-    void onSyncTime();           // 新增：时间同步按钮
-    void onTimelineChanged(int value);     // 新增：时间轴滑动槽函数
-    void onTimestampClicked(int timestamp_type);  // 新增：时间戳点击槽函数
-    void onStartTimeChanged(double value);    // 新增：开始时间编辑槽函数
-    void onTakeoverTimeChanged(double value); // 新增：接管时间编辑槽函数
-    void onEventTimeChanged(double value);    // 新增：事件时间编辑槽函数
-    void onEndTimeChanged(double value);      // 新增：结束时间编辑槽函数
-    void onPlayPause();                       // 新增：播放/暂停控制
-    void onStop();                           // 新增：停止播放
-    void onSpeedChanged(double speed);       // 新增：播放速度变化
+    void onLoadBagInfo();
+    void onManualTimeCapture();
+    void onSyncTime();
+    void onTimelineChanged(int value);
+    void onTimestampClicked(int timestamp_type);
+    void onStartTimeChanged(double value);
+    void onTakeoverTimeChanged(double value);
+    void onEventTimeChanged(double value);
+    void onEndTimeChanged(double value);
 
 private:
     // ROS回调和辅助函数
-    void checkSimPauseParam(const ros::TimerEvent&); // 新增：检查/sim_pause参数的回调
-    void toggleRosbagPlayback();                     // 新增：封装的播放/暂停切换逻辑
+    void checkSimPauseParam(const ros::TimerEvent&);
+    void toggleRosbagPlayback(bool pause);
     void clickUpdateCallback(const pdp_log_editor::PdpLogAnnotation::ConstPtr& msg);
     void clockCallback(const rosgraph_msgs::Clock::ConstPtr& msg);
     void updateTimelineDisplay();
@@ -67,18 +64,14 @@ private:
     void updateTimelinePosition();
     double timestampToSliderValue(double timestamp);
     double sliderValueToTimestamp(int slider_value);
-    void publishPlaybackCommand(const std::string& command);
-    void checkRosbagStatus();
-    void verifyPlaybackState();
 
     // ROS 通信
+    ros::NodeHandle nh_;
     ros::Subscriber click_update_sub_;
     ros::Publisher control_cmd_pub_;
     ros::Publisher annotation_result_pub_;
     ros::Publisher click_event_pub_;
     ros::Subscriber clock_sub_;
-    ros::ServiceClient play_service_;
-    ros::ServiceClient pause_service_;
     ros::Timer param_check_timer_;
 
     // UI 元素

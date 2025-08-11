@@ -27,7 +27,7 @@ namespace pdp_log_editor {
 
 PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), clicks_done_(0), manual_clicks_done_(0), use_bag_time_(false),
     timeline_start_time_(0.0), timeline_end_time_(100.0), current_timeline_time_(0.0), timeline_dragging_(false),
-    is_playing_(false), playback_speed_(1.0), user_operation_delay_(0) {
+    user_operation_delay_(0) {
     auto* layout = new QVBoxLayout(this);
 
     status_label_ = new QLabel("请在3D视图中激活工具并开始标注...");
@@ -105,30 +105,6 @@ PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), cli
     current_time_label_->setStyleSheet("font-weight: bold; color: blue;");
     timeline_group->addWidget(current_time_label_);
     
-    // 播放控制按钮组
-    auto* playback_controls = new QHBoxLayout();
-    
-    play_pause_button_ = new QPushButton("播放");
-    play_pause_button_->setStyleSheet("font-weight: bold; color: green;");
-    playback_controls->addWidget(play_pause_button_);
-    
-    stop_button_ = new QPushButton("停止");
-    stop_button_->setStyleSheet("font-weight: bold; color: red;");
-    playback_controls->addWidget(stop_button_);
-    
-    // 播放速度控制
-    auto* speed_label = new QLabel("速度:");
-    playback_controls->addWidget(speed_label);
-    
-    speed_spinbox_ = new QDoubleSpinBox();
-    speed_spinbox_->setRange(0.1, 5.0);
-    speed_spinbox_->setValue(1.0);
-    speed_spinbox_->setDecimals(1);
-    speed_spinbox_->setSingleStep(0.1);
-    playback_controls->addWidget(speed_spinbox_);
-    
-    timeline_group->addLayout(playback_controls);
-    
     // 时间轴可视化Widget
     timeline_widget_ = new TimelineWidget(this);
     timeline_widget_->setMinimumHeight(80);
@@ -156,12 +132,12 @@ PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), cli
     connect(timeline_slider_, &QSlider::valueChanged, this, &PdpLogEditorPanel::onTimelineChanged);
     connect(timeline_widget_, &TimelineWidget::timestampClicked, this, &PdpLogEditorPanel::onTimestampClicked);
     
-    // 播放控制信号连接
-    connect(play_pause_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onPlayPause);
-    connect(stop_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onStop);
-    connect(speed_spinbox_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), 
-            this, &PdpLogEditorPanel::onSpeedChanged);
-
+    // 连接时间编辑框的信号
+    connect(start_time_spinbox_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &PdpLogEditorPanel::onStartTimeChanged);
+    connect(takeover_time_spinbox_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &PdpLogEditorPanel::onTakeoverTimeChanged);
+    connect(event_time_spinbox_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &PdpLogEditorPanel::onEventTimeChanged);
+    connect(end_time_spinbox_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &PdpLogEditorPanel::onEndTimeChanged);
+    
     setLayout(layout);
     
     // 初始化定时器
@@ -171,6 +147,9 @@ PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), cli
     
     updateUI();
     initializeTimeline();
+    
+    // 新增：创建用于轮询/sim_pause参数的定时器
+    param_check_timer_ = nh_.createTimer(ros::Duration(0.2), &PdpLogEditorPanel::checkSimPauseParam, this);
 }
 
 PdpLogEditorPanel::~PdpLogEditorPanel() {}
@@ -185,33 +164,6 @@ void PdpLogEditorPanel::onInitialize() {
     
     // 订阅/clock话题用于同步时间轴
     clock_sub_ = nh.subscribe("/clock", 10, &PdpLogEditorPanel::clockCallback, this);
-    
-    // 初始化rosbag控制服务客户端
-    // 这些服务通常由rosbag play或rqt_bag提供
-    play_service_ = nh.serviceClient<std_srvs::Empty>("/rosbag/play");
-    pause_service_ = nh.serviceClient<std_srvs::Empty>("/rosbag/pause");
-    
-    // 如果服务不存在，尝试其他常用的服务名称
-    if (!play_service_.exists() && !pause_service_.exists()) {
-        // 尝试rqt_bag的服务接口
-        play_service_ = nh.serviceClient<std_srvs::Empty>("/rqt_bag/play");
-        pause_service_ = nh.serviceClient<std_srvs::Empty>("/rqt_bag/pause");
-    }
-    
-    // 初始化timeline更新定时器
-    timeline_update_timer_ = new QTimer(this);
-    connect(timeline_update_timer_, &QTimer::timeout, this, &PdpLogEditorPanel::updateTimelineDisplay);
-    timeline_update_timer_->start(100); // 每100ms更新一次
-    
-    // 连接可编辑时间框的信号槽
-    connect(start_time_spinbox_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), 
-            this, &PdpLogEditorPanel::onStartTimeChanged);
-    connect(takeover_time_spinbox_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), 
-            this, &PdpLogEditorPanel::onTakeoverTimeChanged);
-    connect(event_time_spinbox_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), 
-            this, &PdpLogEditorPanel::onEventTimeChanged);
-    connect(end_time_spinbox_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), 
-            this, &PdpLogEditorPanel::onEndTimeChanged);
 }
 
 void PdpLogEditorPanel::onUndo() {
@@ -251,7 +203,7 @@ void PdpLogEditorPanel::onUndo() {
         // 发布更新
         click_event_pub_.publish(current_annotation_);
     } else {
-        // 如果没有手动点击，则发送撤销命令给工具
+        // 如果没有手动点击，则发送撤销命令給工具
         std_msgs::String cmd;
         cmd.data = "UNDO";
         control_cmd_pub_.publish(cmd);
@@ -558,27 +510,9 @@ void PdpLogEditorPanel::onSyncTime() {
             // 测试rosbag交互能力
             int rosbag_running = system("pgrep -f 'rosbag play' > /dev/null 2>&1");
             if (rosbag_running == 0) {
-                // 检查是否是交互模式
-                int interactive_check = system("ps aux | grep 'rosbag play' | grep -q -- '-i'");
-                if (interactive_check == 0) {
-                    sync_time_button_->setText(QString("交互模式 时间: %1s").arg(bag_time, 0, 'f', 2));
-                    sync_time_button_->setStyleSheet("font-weight: bold; color: green;");
-                    status_label_->setText("Rosbag交互模式运行中，支持速度控制");
-                    
-                    // 启用控制按钮
-                    play_pause_button_->setEnabled(true);
-                    stop_button_->setEnabled(true);
-                    speed_spinbox_->setEnabled(true);
-                } else {
-                    sync_time_button_->setText(QString("普通模式 时间: %1s").arg(bag_time, 0, 'f', 2));
-                    sync_time_button_->setStyleSheet("font-weight: bold; color: orange;");
-                    status_label_->setText("Rosbag普通模式，需要 -i 参数才能速度控制");
-                    
-                    // 禁用控制按钮
-                    play_pause_button_->setEnabled(false);
-                    stop_button_->setEnabled(false);
-                    speed_spinbox_->setEnabled(false);
-                }
+                sync_time_button_->setText(QString("Rosbag时间: %1s").arg(bag_time, 0, 'f', 2));
+                sync_time_button_->setStyleSheet("font-weight: bold; color: blue;");
+                status_label_->setText("检测到Rosbag播放，使用仿真时间");
             } else {
                 sync_time_button_->setText(QString("Rosbag时间: %1s").arg(bag_time, 0, 'f', 2));
                 sync_time_button_->setStyleSheet("font-weight: bold; color: blue;");
@@ -592,11 +526,6 @@ void PdpLogEditorPanel::onSyncTime() {
         sync_time_button_->setText(QString("ROS时间: %1s").arg(ros_time, 0, 'f', 2));
         sync_time_button_->setStyleSheet("font-weight: bold; color: red;");
         status_label_->setText("未检测到Rosbag播放，使用ROS系统时间");
-        
-        // 禁用控制按钮
-        play_pause_button_->setEnabled(false);
-        stop_button_->setEnabled(false);
-        speed_spinbox_->setEnabled(false);
     }
 }
 
@@ -628,11 +557,7 @@ void PdpLogEditorPanel::onTimelineChanged(int value) {
         return;
     }
     
-    // 发布时间跳转命令到rosbag - 使用正确的格式
-    std::string seek_command = "seek " + std::to_string(current_timeline_time_);
-    publishPlaybackCommand(seek_command);
-    
-    // 同时尝试直接的rosbag交互式命令
+    // 直接的rosbag交互式命令
     std::string interactive_cmd = "s " + std::to_string(current_timeline_time_);
     int result = system(("echo '" + interactive_cmd + "\\n' > /proc/$(pgrep -f 'rosbag play')/fd/0 2>/dev/null").c_str());
     
@@ -942,318 +867,6 @@ void PdpLogEditorPanel::updateTimelineDisplay() {
         timeline_slider_->setValue(slider_pos);
         timeline_slider_->blockSignals(false);
     }
-    
-    // 简化状态检测逻辑，只在需要时执行
-    static int update_counter = 0;
-    update_counter++;
-    if (update_counter % 30 == 0) { // 每秒检查一次 (33ms * 30)
-        checkRosbagStatus();
-    }
-}
-
-// 播放/暂停控制
-void PdpLogEditorPanel::onPlayPause() {
-    ROS_INFO("onPlayPause: Button clicked. Current state: %s", is_playing_ ? "Playing" : "Paused");
-
-    // 寻找正在以交互模式(-i)运行的rosbag play进程的PID
-    // 这个命令更健壮，能准确找到带有 -i 参数的进程
-    const char* find_pid_cmd = "ps aux | grep 'rosbag play' | grep -- '-i' | grep -v grep | awk '{print $2}' | head -n 1";
-    
-    FILE* pipe = popen(find_pid_cmd, "r");
-    if (!pipe) {
-        status_label_->setText("错误: 无法执行命令查找PID");
-        ROS_ERROR("onPlayPause: Failed to run command to find PID.");
-        return;
-    }
-
-    char buffer[128];
-    std::string pid_str = "";
-    if (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-        pid_str = buffer;
-        pid_str.erase(pid_str.find_last_not_of(" \n\r\t")+1);
-    }
-    pclose(pipe);
-
-    if (pid_str.empty()) {
-        status_label_->setText("错误: 未找到交互式rosbag进程!");
-        ROS_WARN("onPlayPause: No running 'rosbag play -i' process found. Please start rosbag with the -i flag.");
-        return;
-    }
-
-    ROS_INFO("onPlayPause: Found interactive rosbag PID: %s", pid_str.c_str());
-
-    // 构建向进程的stdin发送空格的命令
-    std::string toggle_cmd = "echo ' ' > /proc/" + pid_str + "/fd/0";
-    
-    ROS_INFO("onPlayPause: Executing command: %s", toggle_cmd.c_str());
-    int result = system(toggle_cmd.c_str());
-
-    if (result == 0) {
-        // 立即切换UI状态以提供即时反馈
-        is_playing_ = !is_playing_;
-        if (is_playing_) {
-            play_pause_button_->setText("暂停");
-            play_pause_button_->setStyleSheet("font-weight: bold; color: orange;");
-            status_label_->setText("命令已发送: 恢复播放");
-            ROS_INFO("onPlayPause: 'play' command sent successfully.");
-        } else {
-            play_pause_button_->setText("播放");
-            play_pause_button_->setStyleSheet("font-weight: bold; color: green;");
-            status_label_->setText("命令已发送: 暂停播放");
-            ROS_INFO("onPlayPause: 'pause' command sent successfully.");
-        }
-        // 延迟检查实际状态以进行同步
-        QTimer::singleShot(500, this, &PdpLogEditorPanel::verifyPlaybackState);
-    } else {
-        status_label_->setText("错误: 发送命令失败! (权限问题?)");
-        ROS_ERROR("onPlayPause: Failed to execute command. Result code: %d. Check permissions.", result);
-    }
-}
-
-// 停止播放
-void PdpLogEditorPanel::onStop() {
-    // 检查rosbag进程是否存在
-    int rosbag_running = system("pgrep -f 'rosbag play' > /dev/null 2>&1");
-    
-    if (rosbag_running != 0) {
-        status_label_->setText("未检测到rosbag play进程");
-        ROS_INFO("No rosbag play process to stop");
-        return;
-    }
-    
-    is_playing_ = false;
-    play_pause_button_->setText("播放");
-    play_pause_button_->setStyleSheet("font-weight: bold; color: green;");
-    
-    // 发布停止命令
-    publishPlaybackCommand("stop");
-    
-    // 多种方法停止rosbag
-    // 1. 优雅退出 - 发送'q'键
-    int result1 = system("echo 'q' > /proc/$(pgrep -f 'rosbag play')/fd/0 2>/dev/null");
-    
-    // 2. 等待一秒看是否成功退出
-    sleep(1);
-    int still_running = system("pgrep -f 'rosbag play' > /dev/null 2>&1");
-    
-    if (still_running == 0) {
-        // 进程仍在运行，使用SIGTERM
-        ROS_WARN("优雅退出失败，使用SIGTERM");
-        system("pkill -TERM -f 'rosbag play' 2>/dev/null");
-        
-        // 再等待一秒
-        sleep(1);
-        still_running = system("pgrep -f 'rosbag play' > /dev/null 2>&1");
-        
-        if (still_running == 0) {
-            // 强制终止
-            ROS_WARN("SIGTERM失败，强制终止");
-            system("pkill -KILL -f 'rosbag play' 2>/dev/null");
-            status_label_->setText("强制停止rosbag进程");
-        } else {
-            status_label_->setText("rosbag进程已优雅停止");
-        }
-    } else {
-        status_label_->setText("rosbag进程已停止");
-    }
-    
-    ROS_INFO("Stopped rosbag playback");
-}
-
-// 播放速度变化
-void PdpLogEditorPanel::onSpeedChanged(double speed) {
-    playback_speed_ = speed;
-    
-    // 检查rosbag进程是否存在
-    int rosbag_running = system("pgrep -f 'rosbag play' > /dev/null 2>&1");
-    
-    if (rosbag_running != 0) {
-        status_label_->setText("错误：未检测到rosbag play进程！无法设置速度");
-        ROS_WARN("No rosbag play process found. Cannot set playback rate.");
-        return;
-    }
-    
-    // 直接发送'r'命令到rosbag交互式进程
-    std::string interactive_cmd = "r " + std::to_string(speed);
-    int result = system(("echo '" + interactive_cmd + "' > /proc/$(pgrep -f 'rosbag play')/fd/0 2>/dev/null").c_str());
-    
-    if (result == 0) {
-        status_label_->setText(QString("播放速度已设置为: %1x").arg(speed, 0, 'f', 1));
-        ROS_INFO("成功设置rosbag播放速度: %f", speed);
-    } else {
-        // 尝试其他方法 - 使用管道
-        std::string pipe_cmd = "echo '" + interactive_cmd + "' | nc -q 1 localhost $(ps aux | grep 'rosbag play' | grep -v grep | awk '{print $2}') 2>/dev/null";
-        int result2 = system(pipe_cmd.c_str());
-        
-        if (result2 == 0) {
-            status_label_->setText(QString("播放速度已设置为: %1x (方法2)").arg(speed, 0, 'f', 1));
-        } else {
-            status_label_->setText(QString("速度设置可能失败，目标速度: %1x").arg(speed, 0, 'f', 1));
-            ROS_WARN("Failed to send rate command to rosbag process");
-        }
-    }
-    
-    ROS_INFO("Setting rosbag playback rate to: %f", speed);
-}
-
-// 发布播放控制命令
-void PdpLogEditorPanel::publishPlaybackCommand(const std::string& command) {
-    std_msgs::String cmd_msg;
-    cmd_msg.data = command;
-    
-    // 使用多种方法尝试控制rosbag
-    static ros::Publisher control_pub;
-    static ros::Publisher pause_pub;
-    static ros::Publisher seek_pub;
-    static bool pubs_initialized = false;
-    
-    if (!pubs_initialized) {
-        ros::NodeHandle nh;
-        // 标准rosbag控制话题
-        control_pub = nh.advertise<std_msgs::String>("/rosbag/control", 1);
-        // 暂停/恢复话题（某些版本的rosbag支持）
-        pause_pub = nh.advertise<std_msgs::String>("/rosbag/pause", 1);
-        // 时间跳转话题
-        seek_pub = nh.advertise<std_msgs::String>("/rosbag/seek", 1);
-        pubs_initialized = true;
-        
-        // 等待话题连接
-        ros::Duration(0.1).sleep();
-    }
-    
-    // 根据命令类型发布到相应话题
-    if (command == "play") {
-        // 播放命令
-        cmd_msg.data = "play";
-        control_pub.publish(cmd_msg);
-        pause_pub.publish(cmd_msg);
-        
-        // 通过系统调用发送空格键到rosbag（恢复播放）
-        system("echo ' ' > /proc/$(pgrep -f 'rosbag play')/fd/0 2>/dev/null || true");
-        
-        ROS_INFO("发送播放命令到rosbag");
-    } else if (command == "pause") {
-        // 暂停命令
-        cmd_msg.data = "pause";
-        control_pub.publish(cmd_msg);
-        pause_pub.publish(cmd_msg);
-        
-        // 通过系统调用发送空格键到rosbag（暂停播放）
-        system("echo ' ' > /proc/$(pgrep -f 'rosbag play')/fd/0 2>/dev/null || true");
-        
-        ROS_INFO("发送暂停命令到rosbag");
-    } else if (command.find("seek") != std::string::npos) {
-        seek_pub.publish(cmd_msg);
-        
-        // 对于时间跳转，提取时间值并尝试发送's'命令
-        size_t space_pos = command.find(' ');
-        if (space_pos != std::string::npos) {
-            std::string time_str = command.substr(space_pos + 1);
-            std::string seek_cmd = "s " + time_str;
-            system(("echo '" + seek_cmd + "' > /proc/$(pgrep -f 'rosbag play')/fd/0 2>/dev/null || true").c_str());
-        }
-        
-        ROS_INFO("发送时间跳转命令到rosbag: %s", command.c_str());
-    } else if (command.find("set_rate") != std::string::npos) {
-        // 速度控制命令 - 改进实现
-        // 提取速度值并发送'r'命令
-        size_t space_pos = command.find(' ');
-        if (space_pos != std::string::npos) {
-            std::string rate_str = command.substr(space_pos + 1);
-            std::string rate_cmd = "r " + rate_str;
-            
-            // 尝试多种方式发送命令
-            int result1 = system(("echo '" + rate_cmd + "' > /proc/$(pgrep -f 'rosbag play')/fd/0 2>/dev/null").c_str());
-            
-            if (result1 != 0) {
-                // 方法1失败，尝试方法2 - 直接写入stdin
-                std::string cmd2 = "echo '" + rate_cmd + "' | cat > /proc/$(pgrep -f 'rosbag play')/fd/0 2>/dev/null";
-                int result2 = system(cmd2.c_str());
-                
-                if (result2 != 0) {
-                    ROS_WARN("多种方法发送速度命令都失败了");
-                }
-            }
-        }
-        
-        ROS_INFO("发送速度控制命令到rosbag: %s", command.c_str());
-    } else {
-        // 其他命令直接发送
-        control_pub.publish(cmd_msg);
-        ROS_INFO("发布rosbag控制命令: %s", command.c_str());
-    }
-}
-
-void PdpLogEditorPanel::checkRosbagStatus() {
-    // 检查rosbag播放状态
-    FILE* pipe = popen("pgrep -f 'rosbag play'", "r");
-    if (pipe) {
-        char buffer[128];
-        bool rosbag_running = false;
-        while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-            rosbag_running = true;
-            break;
-        }
-        pclose(pipe);
-        
-        if (rosbag_running) {
-            // 检查是否是交互模式
-            pipe = popen("ps aux | grep 'rosbag play' | grep -q -- '-i' && echo 'interactive' || echo 'normal'", "r");
-            if (pipe) {
-                char mode_buffer[32];
-                if (fgets(mode_buffer, sizeof(mode_buffer), pipe) != nullptr) {
-                    std::string mode(mode_buffer);
-                    mode.erase(mode.find_last_not_of(" \n\r\t") + 1);
-                    
-                    if (mode == "interactive") {
-                        status_label_->setText("Rosbag运行中 (交互模式)");
-                        play_pause_button_->setEnabled(true);
-                    } else {
-                        status_label_->setText("Rosbag运行中 (普通模式 - 需要-i参数才能控制)");
-                        play_pause_button_->setEnabled(false);
-                    }
-                }
-                pclose(pipe);
-            }
-        } else {
-            status_label_->setText("Rosbag未运行");
-            play_pause_button_->setEnabled(false);
-        }
-    }
-}
-
-void PdpLogEditorPanel::verifyPlaybackState() {
-    // 通过检查时间变化来验证实际播放状态
-    static double last_time = 0.0;
-    double current_time = getCurrentTime().toSec();
-    
-    // 等待一小段时间再次检查
-    QTimer::singleShot(200, this, [this, current_time]() {
-        double new_time = getCurrentTime().toSec();
-        bool actually_playing = (abs(new_time - current_time) > 0.01); // 时间有变化说明在播放
-        
-        if (actually_playing != is_playing_) {
-            // UI状态与实际状态不一致，需要纠正
-            is_playing_ = actually_playing;
-            if (is_playing_) {
-                play_pause_button_->setText("暂停");
-                play_pause_button_->setStyleSheet("font-weight: bold; color: orange;");
-                status_label_->setText("状态同步：rosbag正在播放");
-            } else {
-                play_pause_button_->setText("播放");
-                play_pause_button_->setStyleSheet("font-weight: bold; color: green;");
-                status_label_->setText("状态同步：rosbag已暂停");
-            }
-            ROS_INFO("UI状态已与实际播放状态同步: %s", is_playing_ ? "播放中" : "已暂停");
-        } else {
-            // 状态一致，显示成功信息
-            if (is_playing_) {
-                status_label_->setText("播放控制成功 - rosbag正在播放");
-            } else {
-                status_label_->setText("暂停控制成功 - rosbag已暂停");
-            }
-        }
-    });
 }
 
 void PdpLogEditorPanel::onLoadBagInfo() {
@@ -1295,6 +908,58 @@ void PdpLogEditorPanel::onLoadBagInfo() {
 
     } catch (const rosbag::BagException& e) {
         QMessageBox::critical(this, "Rosbag读取错误", QString("无法打开或解析rosbag文件: %1").arg(e.what()));
+    }
+}
+
+void PdpLogEditorPanel::checkSimPauseParam(const ros::TimerEvent&) {
+    bool is_paused = false;
+    if (nh_.getParam("/sim_pause", is_paused)) {
+        toggleRosbagPlayback(is_paused);
+    }
+}
+
+void PdpLogEditorPanel::toggleRosbagPlayback(bool pause) {
+    static bool last_pause_state = false;
+    if (pause == last_pause_state) {
+        return; // 状态未改变，无需操作
+    }
+
+    const char* find_pid_cmd = "ps aux | grep 'rosbag play' | grep -v grep | awk '{print $2}' | head -n 1";
+    
+    FILE* pipe = popen(find_pid_cmd, "r");
+    if (!pipe) {
+        ROS_ERROR("Failed to run command to find rosbag PID.");
+        return;
+    }
+
+    char buffer[128];
+    std::string pid_str = "";
+    if (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        pid_str = buffer;
+        pid_str.erase(pid_str.find_last_not_of(" \n\r\t")+1);
+    }
+    pclose(pipe);
+
+    if (pid_str.empty()) {
+        // ROS_WARN("No running 'rosbag play' process found.");
+        return;
+    }
+
+    std::string toggle_cmd = "echo ' ' > /proc/" + pid_str + "/fd/0";
+    
+    int result = system(toggle_cmd.c_str());
+
+    if (result == 0) {
+        if (pause) {
+            status_label_->setText("Rosbag已通过参数暂停");
+            ROS_INFO("Rosbag playback paused via /sim_pause parameter.");
+        } else {
+            status_label_->setText("Rosbag已通过参数恢复");
+            ROS_INFO("Rosbag playback resumed via /sim_pause parameter.");
+        }
+        last_pause_state = pause;
+    } else {
+        ROS_ERROR("Failed to send command to rosbag process. Result: %d", result);
     }
 }
 
