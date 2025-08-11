@@ -16,6 +16,7 @@ class QSlider;
 class QHBoxLayout;
 class QDoubleSpinBox;
 class QTimer;
+class QLineEdit; // 新增
 
 namespace pdp_log_editor {
 
@@ -80,6 +81,7 @@ private:
     QDoubleSpinBox* takeover_time_spinbox_;
     QDoubleSpinBox* event_time_spinbox_;
     QDoubleSpinBox* end_time_spinbox_;
+    QLineEdit* vehicle_config_edit_; // 新增
     QPushButton* undo_button_;
     QPushButton* reset_button_;
     QPushButton* publish_button_;

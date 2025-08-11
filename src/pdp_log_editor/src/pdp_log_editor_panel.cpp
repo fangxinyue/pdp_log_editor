@@ -17,6 +17,7 @@
 #include <QGridLayout>
 #include <QSlider>
 #include <QDoubleSpinBox>
+#include <QLineEdit> // 新增
 #include <QPainter>
 #include <QMouseEvent>
 #include <QTimer>
@@ -71,6 +72,13 @@ PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), cli
     end_time_spinbox_->setValue(0.0);
     end_time_spinbox_->setStyleSheet("background-color: #FFB3B3; font-weight: bold;"); // 浅红色
     grid_layout->addWidget(end_time_spinbox_, 3, 1);
+
+    // 新增：车辆配置 - 灰色
+    grid_layout->addWidget(new QLabel("车辆配置:"), 4, 0);
+    vehicle_config_edit_ = new QLineEdit();
+    vehicle_config_edit_->setText("JLBJA47708D"); // 默认值
+    vehicle_config_edit_->setStyleSheet("background-color: #E0E0E0;"); // 浅灰色
+    grid_layout->addWidget(vehicle_config_edit_, 4, 1);
 
     layout->addLayout(grid_layout);
 
@@ -351,10 +359,10 @@ void PdpLogEditorPanel::load(const rviz::Config& config) {
 }
 
 void PdpLogEditorPanel::onSaveToJson() {
-    if (clicks_done_ < 4) {
-        status_label_->setText("标注未完成，无法保存！");
-        return;
-    }
+    // if (clicks_done_ < 4) {
+    //     status_label_->setText("标注未完成，无法保存！");
+    //     return;
+    // }
 
     QString file_path = QFileDialog::getSaveFileName(this, 
         "保存标注为JSON文件", 
@@ -386,6 +394,9 @@ void PdpLogEditorPanel::onSaveToJson() {
         j["case_time"]["event"] = current_annotation_.event_time.toSec();
         j["case_time"]["end_time"] = current_annotation_.scene_end_time.toSec();
         
+        // 更新 vehicle_config
+        j["vehicle_config"] = vehicle_config_edit_->text().toStdString();
+
         // 如果是新文件，添加默认的其他字段
         if (!j.contains("case_info")) {
             j["case_info"]["ego_initial"]["position"]["x"] = -4164.322722157463;
@@ -398,10 +409,6 @@ void PdpLogEditorPanel::onSaveToJson() {
             j["case_info"]["ego_dest"]["y"] = 0.0;
             j["case_info"]["ego_dest"]["z"] = 183.6990550000337;
             j["case_info"]["scene"] = "environment_GuoZhan";
-        }
-        
-        if (!j.contains("vehicle_config")) {
-            j["vehicle_config"] = "JLBJA47708D";
         }
         
         if (!j.contains("db.sqlite")) {
@@ -456,6 +463,11 @@ void PdpLogEditorPanel::onLoadFromJson() {
             current_annotation_.takeover_time.fromSec(j["takeover_time"]);
             current_annotation_.event_time.fromSec(j["event_time"]);
             current_annotation_.scene_end_time.fromSec(j["scene_end_time"]);
+        }
+
+        // 新增：加载 vehicle_config
+        if (j.contains("vehicle_config") && j["vehicle_config"].is_string()) {
+            vehicle_config_edit_->setText(QString::fromStdString(j["vehicle_config"]));
         }
 
         // 计算已完成的点击次数
