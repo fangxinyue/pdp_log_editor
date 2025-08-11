@@ -6,15 +6,15 @@ PDP Log Editor插件现在支持可编辑的时间输入框，用户可以通过
 ## 特色功能
 
 ### 🎨 彩色可编辑时间框
-- **绿色框** - 场景开始时间 (浅绿色背景)
-- **黄色框** - 接管时间 (浅黄色背景)  
+- **绿色框** - start_time (浅绿色背景)
+- **黄色框** - 控车时间 (浅黄色背景)  
 - **橙色框** - 事件时间 (浅橙色背景)
 - **红色框** - 场景结束时间 (浅红色背景)
 
 ### 📝 手动时间捕获
 点击"手动获取时间"按钮会依次捕获当前bag时间：
-1. 第1次点击 → 绿色框（场景开始时间）
-2. 第2次点击 → 黄色框（接管时间）
+1. 第1次点击 → 绿色框（start_time）
+2. 第2次点击 → 黄色框（控车时间）
 3. 第3次点击 → 橙色框（事件时间）
 4. 第4次点击 → 红色框（场景结束时间）
 
@@ -35,7 +35,7 @@ PDP Log Editor插件现在支持可编辑的时间输入框，用户可以通过
 ### UI组件
 ```cpp
 QDoubleSpinBox* start_time_spinbox_;     // 绿色 - 场景开始
-QDoubleSpinBox* takeover_time_spinbox_;  // 黄色 - 接管时间  
+QDoubleSpinBox* takeover_time_spinbox_;  // 黄色 - 控车时间  
 QDoubleSpinBox* event_time_spinbox_;     // 橙色 - 事件时间
 QDoubleSpinBox* end_time_spinbox_;       // 红色 - 场景结束
 ```
@@ -59,8 +59,8 @@ connect(start_time_spinbox_, QOverload<double>::of(&QDoubleSpinBox::valueChanged
 4. **完成标注**: 点击"发布"保存标注结果
 
 ## 颜色编码说明
-- 🟢 **绿色** = 场景开始时间 (第1次点击)
-- 🟡 **黄色** = 接管时间 (第2次点击)  
+- 🟢 **绿色** = start_time (第1次点击)
+- 🟡 **黄色** = 控车时间 (第2次点击)  
 - 🟠 **橙色** = 事件时间 (第3次点击)
 - 🔴 **红色** = 场景结束时间 (第4次点击)
 

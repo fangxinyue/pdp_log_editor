@@ -1,4 +1,5 @@
 #include <pluginlib/class_list_macros.h>
+#include <pluginlib/class_list_macros.h>
 #include "pdp_log_editor/pdp_log_editor_panel.h"
 #include <fstream>
 #include <QFileDialog>
@@ -6,8 +7,7 @@
 #include <QDir>
 #include <nlohmann/json.hpp>
 #include "pdp_log_editor/PdpLogAnnotation.h"
-#include <std_msgs/String.h>
-#include <rosgraph_msgs/Clock.h>
+#include <std_msgs/String.h>        case 1: status_label_->setText("Please click to mark [takeover]"); break;#include <rosgraph_msgs/Clock.h>
 #include <rosbag/bag.h>
 #include <rosbag/view.h>
 #include <QLabel>
@@ -37,8 +37,8 @@ PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), cli
 
     auto* grid_layout = new QGridLayout();
     
-    // 场景开始时间 - 绿色
-    grid_layout->addWidget(new QLabel("场景开始:"), 0, 0);
+    // start_time - Green
+    grid_layout->addWidget(new QLabel("start_time"), 0, 0);
     start_time_spinbox_ = new QDoubleSpinBox();
     start_time_spinbox_->setRange(-999999999999.99, 999999999999.99);
     start_time_spinbox_->setDecimals(6);  // 增加精度以支持完整的bag时间
@@ -46,8 +46,8 @@ PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), cli
     start_time_spinbox_->setStyleSheet("background-color: #90EE90; font-weight: bold;"); // 浅绿色
     grid_layout->addWidget(start_time_spinbox_, 0, 1);
 
-    // 接管时间 - 黄色
-    grid_layout->addWidget(new QLabel("接管时间:"), 1, 0);
+    // takeover - Yellow
+    grid_layout->addWidget(new QLabel("takeover"), 1, 0);
     takeover_time_spinbox_ = new QDoubleSpinBox();
     takeover_time_spinbox_->setRange(-999999999999.99, 999999999999.99);
     takeover_time_spinbox_->setDecimals(6);  // 增加精度以支持完整的bag时间
@@ -55,8 +55,8 @@ PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), cli
     takeover_time_spinbox_->setStyleSheet("background-color: #FFFF99; font-weight: bold;"); // 浅黄色
     grid_layout->addWidget(takeover_time_spinbox_, 1, 1);
 
-    // 事件时间 - 橙色
-    grid_layout->addWidget(new QLabel("事件时间:"), 2, 0);
+    // event - Orange
+    grid_layout->addWidget(new QLabel("event"), 2, 0);
     event_time_spinbox_ = new QDoubleSpinBox();
     event_time_spinbox_->setRange(-999999999999.99, 999999999999.99);
     event_time_spinbox_->setDecimals(6);  // 增加精度以支持完整的bag时间
@@ -64,8 +64,8 @@ PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), cli
     event_time_spinbox_->setStyleSheet("background-color: #FFB366; font-weight: bold;"); // 浅橙色
     grid_layout->addWidget(event_time_spinbox_, 2, 1);
 
-    // 场景结束时间 - 红色
-    grid_layout->addWidget(new QLabel("场景结束:"), 3, 0);
+    // end_time - Red
+    grid_layout->addWidget(new QLabel("end_time"), 3, 0);
     end_time_spinbox_ = new QDoubleSpinBox();
     end_time_spinbox_->setRange(-999999999999.99, 999999999999.99);
     end_time_spinbox_->setDecimals(6);  // 增加精度以支持完整的bag时间
@@ -73,8 +73,8 @@ PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), cli
     end_time_spinbox_->setStyleSheet("background-color: #FFB3B3; font-weight: bold;"); // 浅红色
     grid_layout->addWidget(end_time_spinbox_, 3, 1);
 
-    // 新增：车辆配置 - 灰色
-    grid_layout->addWidget(new QLabel("车辆配置:"), 4, 0);
+    // vehicle_config - Gray
+    grid_layout->addWidget(new QLabel("vehicle_config"), 4, 0);
     vehicle_config_edit_ = new QLineEdit();
     vehicle_config_edit_->setText("JLBJA47708D"); // 默认值
     vehicle_config_edit_->setStyleSheet("background-color: #E0E0E0;"); // 浅灰色
@@ -84,10 +84,8 @@ PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), cli
 
     undo_button_ = new QPushButton("撤销上一步");
     reset_button_ = new QPushButton("全部重置");
-    publish_button_ = new QPushButton("发布标注结果");
     layout->addWidget(undo_button_);
     layout->addWidget(reset_button_);
-    layout->addWidget(publish_button_);
 
     load_bag_info_button_ = new QPushButton("从Rosbag加载时间轴");
     load_bag_info_button_->setStyleSheet("font-weight: bold; color: purple;");
@@ -97,13 +95,10 @@ PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), cli
     load_button_ = new QPushButton("Load from JSON");
     manual_capture_button_ = new QPushButton("手动获取时间 (0/4)");
     manual_capture_button_->setStyleSheet("font-weight: bold; color: green;");
-    sync_time_button_ = new QPushButton("使用ROS时间");
-    sync_time_button_->setStyleSheet("font-weight: bold; color: orange;");
     
     layout->addWidget(save_button_);
     layout->addWidget(load_button_);
     layout->addWidget(manual_capture_button_);
-    layout->addWidget(sync_time_button_);
 
     // 添加时间轴部分
     auto* timeline_group = new QVBoxLayout();
@@ -131,12 +126,10 @@ PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), cli
 
     connect(undo_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onUndo);
     connect(reset_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onReset);
-    connect(publish_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onPublish);
     connect(load_bag_info_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onLoadBagInfo);
     connect(save_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onSaveToJson);
     connect(load_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onLoadFromJson);
     connect(manual_capture_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onManualTimeCapture);
-    connect(sync_time_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onSyncTime);
     connect(timeline_slider_, &QSlider::valueChanged, this, &PdpLogEditorPanel::onTimelineChanged);
     connect(timeline_widget_, &TimelineWidget::timestampClicked, this, &PdpLogEditorPanel::onTimestampClicked);
     
@@ -183,11 +176,11 @@ void PdpLogEditorPanel::onUndo() {
         switch (manual_clicks_done_) {
             case 0:
                 current_annotation_.scene_start_time = ros::Time(0);
-                status_label_->setText("已撤销场景开始时间");
+                status_label_->setText("Undo start_time");
                 break;
             case 1:
                 current_annotation_.takeover_time = ros::Time(0);
-                status_label_->setText("已撤销接管时间");
+                status_label_->setText("Undo takeover");
                 break;
             case 2:
                 current_annotation_.event_time = ros::Time(0);
@@ -255,14 +248,14 @@ void PdpLogEditorPanel::onManualTimeCapture() {
             start_time_spinbox_->blockSignals(true);
             start_time_spinbox_->setValue(time_value);
             start_time_spinbox_->blockSignals(false);
-            status_label_->setText(QString("已捕获场景开始时间: %1s (%2)").arg(time_value, 0, 'f', 3).arg(time_source));
+            status_label_->setText(QString("Captured start_time: %1s (%2)").arg(time_value, 0, 'f', 3).arg(time_source));
             break;
         case 1:
             current_annotation_.takeover_time = current_time;
             takeover_time_spinbox_->blockSignals(true);
             takeover_time_spinbox_->setValue(time_value);
             takeover_time_spinbox_->blockSignals(false);
-            status_label_->setText(QString("已捕获接管时间: %1s (%2)").arg(time_value, 0, 'f', 3).arg(time_source));
+            status_label_->setText(QString("Captured takeover: %1s (%2)").arg(time_value, 0, 'f', 3).arg(time_source));
             break;
         case 2:
             current_annotation_.event_time = current_time;
@@ -298,17 +291,6 @@ void PdpLogEditorPanel::onManualTimeCapture() {
     click_event_pub_.publish(current_annotation_);
 }
 
-void PdpLogEditorPanel::onPublish() {
-    if (clicks_done_ == 4) {
-        current_annotation_.header.stamp = ros::Time::now();
-        current_annotation_.header.frame_id = "map";
-        annotation_result_pub_.publish(current_annotation_);
-        status_label_->setText("标注结果已发布！");
-    } else {
-        status_label_->setText("标注未完成，无法发布！");
-    }
-}
-
 void PdpLogEditorPanel::clickUpdateCallback(const pdp_log_editor::PdpLogAnnotation::ConstPtr& msg) {
     current_annotation_ = *msg;
     clicks_done_ = 0;
@@ -338,8 +320,8 @@ void PdpLogEditorPanel::updateUI() {
     end_time_spinbox_->blockSignals(false);
 
     switch (clicks_done_) {
-        case 0: status_label_->setText("请点击以标注【场景开始时间】"); break;
-        case 1: status_label_->setText("请点击以标注【接管时间】"); break;
+        case 0: status_label_->setText("Please click to mark [start_time]"); break;
+        case 1: status_label_->setText("请点击以标注【控车时间】"); break;
         case 2: status_label_->setText("请点击以标注【事件时间】"); break;
         case 3: status_label_->setText("请点击以标注【场景结束时间】"); break;
         case 4: status_label_->setText("标注已完成，可点击发布"); break;
@@ -512,35 +494,6 @@ void PdpLogEditorPanel::resetManualCapture() {
     click_event_pub_.publish(current_annotation_);
 }
 
-void PdpLogEditorPanel::onSyncTime() {
-    // 检测当前时间状态和rosbag交互能力
-    try {
-        rosgraph_msgs::ClockConstPtr clock_msg = ros::topic::waitForMessage<rosgraph_msgs::Clock>("/clock", ros::Duration(0.5));
-        if (clock_msg) {
-            double bag_time = clock_msg->clock.toSec();
-            
-            // 测试rosbag交互能力
-            int rosbag_running = system("pgrep -f 'rosbag play' > /dev/null 2>&1");
-            if (rosbag_running == 0) {
-                sync_time_button_->setText(QString("Rosbag时间: %1s").arg(bag_time, 0, 'f', 2));
-                sync_time_button_->setStyleSheet("font-weight: bold; color: blue;");
-                status_label_->setText("检测到Rosbag播放，使用仿真时间");
-            } else {
-                sync_time_button_->setText(QString("Rosbag时间: %1s").arg(bag_time, 0, 'f', 2));
-                sync_time_button_->setStyleSheet("font-weight: bold; color: blue;");
-                status_label_->setText("检测到Rosbag播放，使用仿真时间");
-            }
-        } else {
-            throw std::runtime_error("无法获取/clock话题");
-        }
-    } catch (...) {
-        double ros_time = ros::Time::now().toSec();
-        sync_time_button_->setText(QString("ROS时间: %1s").arg(ros_time, 0, 'f', 2));
-        sync_time_button_->setStyleSheet("font-weight: bold; color: red;");
-        status_label_->setText("未检测到Rosbag播放，使用ROS系统时间");
-    }
-}
-
 ros::Time PdpLogEditorPanel::getCurrentTime() {
     // 优先从/clock话题获取仿真时间（rosbag播放时间）
     try {
@@ -587,11 +540,11 @@ void PdpLogEditorPanel::onTimestampClicked(int timestamp_type) {
     switch (timestamp_type) {
         case 0: // start_time
             current_annotation_.scene_start_time.fromSec(current_timeline_time_);
-            status_label_->setText(QString("已设置场景开始时间: %1s").arg(current_timeline_time_, 0, 'f', 2));
+            status_label_->setText(QString("Set start_time: %1s").arg(current_timeline_time_, 0, 'f', 2));
             break;
         case 1: // takeover
             current_annotation_.takeover_time.fromSec(current_timeline_time_);
-            status_label_->setText(QString("已设置接管时间: %1s").arg(current_timeline_time_, 0, 'f', 2));
+            status_label_->setText(QString("已设置控车时间: %1s").arg(current_timeline_time_, 0, 'f', 2));
             break;
         case 2: // event
             current_annotation_.event_time.fromSec(current_timeline_time_);
@@ -657,7 +610,7 @@ TimelineWidget::TimelineWidget(QWidget* parent) : QWidget(parent), start_time_(0
     
     // 设置不同时间戳的颜色
     timestamp_colors_[0] = QColor(0, 255, 0);     // 场景开始 - 绿色
-    timestamp_colors_[1] = QColor(255, 255, 0);   // 接管时间 - 黄色  
+    timestamp_colors_[1] = QColor(255, 255, 0);   // 控车时间 - 黄色  
     timestamp_colors_[2] = QColor(255, 165, 0);   // 事件时间 - 橙色
     timestamp_colors_[3] = QColor(255, 0, 0);     // 场景结束 - 红色
     
@@ -746,7 +699,7 @@ void TimelineWidget::paintEvent(QPaintEvent* event) {
             QString label;
             switch (i) {
                 case 0: label = "开始"; break;
-                case 1: label = "接管"; break;
+                case 1: label = "控车"; break;
                 case 2: label = "事件"; break;
                 case 3: label = "结束"; break;
             }

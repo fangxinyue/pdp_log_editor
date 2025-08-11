@@ -38,12 +38,10 @@ protected Q_SLOTS:
     // 按钮点击事件的槽函数
     void onUndo();
     void onReset();
-    void onPublish();
     void onSaveToJson();
     void onLoadFromJson();
     void onLoadBagInfo();
     void onManualTimeCapture();
-    void onSyncTime();
     void onTimelineChanged(int value);
     void onTimestampClicked(int timestamp_type);
     void onStartTimeChanged(double value);
@@ -84,12 +82,10 @@ private:
     QLineEdit* vehicle_config_edit_; // 新增
     QPushButton* undo_button_;
     QPushButton* reset_button_;
-    QPushButton* publish_button_;
     QPushButton* save_button_;
     QPushButton* load_button_;
     QPushButton* load_bag_info_button_;
     QPushButton* manual_capture_button_;
-    QPushButton* sync_time_button_;
     TimelineWidget* timeline_widget_;
     QSlider* timeline_slider_;
     QLabel* current_time_label_;
