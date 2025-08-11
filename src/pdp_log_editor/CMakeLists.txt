@@ -8,6 +8,7 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   message_generation
   pluginlib
+  rosbag
 )
 find_package(nlohmann_json REQUIRED)
 find_package(Qt5 REQUIRED Widgets)

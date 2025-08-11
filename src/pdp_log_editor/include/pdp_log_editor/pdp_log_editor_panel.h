@@ -40,6 +40,7 @@ protected Q_SLOTS:
     void onPublish();
     void onSaveToJson();
     void onLoadFromJson();
+    void onLoadBagInfo();           // 新增：从rosbag加载时间轴范围
     void onManualTimeCapture();  // 新增：手动时间捕获按钮
     void onSyncTime();           // 新增：时间同步按钮
     void onTimelineChanged(int value);     // 新增：时间轴滑动槽函数
@@ -53,69 +54,73 @@ protected Q_SLOTS:
     void onSpeedChanged(double speed);       // 新增：播放速度变化
 
 private:
+    // ROS回调和辅助函数
+    void checkSimPauseParam(const ros::TimerEvent&); // 新增：检查/sim_pause参数的回调
+    void toggleRosbagPlayback();                     // 新增：封装的播放/暂停切换逻辑
+    void clickUpdateCallback(const pdp_log_editor::PdpLogAnnotation::ConstPtr& msg);
+    void clockCallback(const rosgraph_msgs::Clock::ConstPtr& msg);
+    void updateTimelineDisplay();
+    void updateUI();
+    void resetManualCapture();
+    ros::Time getCurrentTime();
+    void initializeTimeline();
+    void updateTimelinePosition();
+    double timestampToSliderValue(double timestamp);
+    double sliderValueToTimestamp(int slider_value);
+    void publishPlaybackCommand(const std::string& command);
+    void checkRosbagStatus();
+    void verifyPlaybackState();
+
     // ROS 通信
     ros::Subscriber click_update_sub_;
     ros::Publisher control_cmd_pub_;
     ros::Publisher annotation_result_pub_;
-    ros::Publisher click_event_pub_;  // 新增：用于手动时间发布
+    ros::Publisher click_event_pub_;
+    ros::Subscriber clock_sub_;
+    ros::ServiceClient play_service_;
+    ros::ServiceClient pause_service_;
+    ros::Timer param_check_timer_;
 
     // UI 元素
     QLabel* status_label_;
-    QDoubleSpinBox* start_time_spinbox_;     // 修改：可编辑的开始时间(绿色)
-    QDoubleSpinBox* takeover_time_spinbox_;  // 修改：可编辑的接管时间(黄色)
-    QDoubleSpinBox* event_time_spinbox_;     // 修改：可编辑的事件时间(橙色)
-    QDoubleSpinBox* end_time_spinbox_;       // 修改：可编辑的结束时间(红色)
+    QDoubleSpinBox* start_time_spinbox_;
+    QDoubleSpinBox* takeover_time_spinbox_;
+    QDoubleSpinBox* event_time_spinbox_;
+    QDoubleSpinBox* end_time_spinbox_;
     QPushButton* undo_button_;
     QPushButton* reset_button_;
     QPushButton* publish_button_;
     QPushButton* save_button_;
     QPushButton* load_button_;
-    QPushButton* manual_capture_button_;  // 新增：手动时间捕获按钮
-    QPushButton* sync_time_button_;       // 新增：时间同步按钮
-    TimelineWidget* timeline_widget_;     // 新增：时间轴组件
-    QSlider* timeline_slider_;            // 新增：时间轴滑动条（进度条）
-    QLabel* current_time_label_;          // 新增：当前时间显示
-    QPushButton* play_pause_button_;      // 新增：播放/暂停按钮
-    QPushButton* stop_button_;            // 新增：停止按钮
-    QDoubleSpinBox* speed_spinbox_;       // 新增：播放速度控制
+    QPushButton* load_bag_info_button_;
+    QPushButton* manual_capture_button_;
+    QPushButton* sync_time_button_;
+    TimelineWidget* timeline_widget_;
+    QSlider* timeline_slider_;
+    QLabel* current_time_label_;
+    QPushButton* play_pause_button_;
+    QPushButton* stop_button_;
+    QDoubleSpinBox* speed_spinbox_;
+    QTimer* timeline_update_timer_;
     
     // 内部数据存储
     pdp_log_editor::PdpLogAnnotation current_annotation_;
     int clicks_done_;
-    int manual_clicks_done_;  // 新增：手动点击计数器
-    bool use_bag_time_;       // 新增：是否使用bag时间标志
-    ros::Duration bag_time_offset_; // 新增：bag时间偏移量
+    int manual_clicks_done_;
+    bool use_bag_time_;
+    ros::Duration bag_time_offset_;
     
     // 时间轴相关数据
-    double timeline_start_time_;  // 时间轴开始时间
-    double timeline_end_time_;    // 时间轴结束时间
-    double current_timeline_time_; // 当前时间轴时间
-    bool timeline_dragging_;      // 是否正在拖拽时间轴
+    double timeline_start_time_;
+    double timeline_end_time_;
+    double current_timeline_time_;
+    bool timeline_dragging_;
     
     // 播放控制相关
-    bool is_playing_;             // 是否正在播放
-    double playback_speed_;       // 播放速度
-    ros::Subscriber clock_sub_;   // /clock话题订阅器
-    QTimer* timeline_update_timer_; // 时间轴更新定时器
-    int user_operation_delay_;    // 用户操作延迟保护计数器（防止自动状态同步干扰）
-    
-    // rosbag控制服务客户端
-    ros::ServiceClient play_service_;
-    ros::ServiceClient pause_service_;
-
-    // ROS回调和辅助函数
-    void clickUpdateCallback(const pdp_log_editor::PdpLogAnnotation::ConstPtr& msg);
-    void clockCallback(const rosgraph_msgs::Clock::ConstPtr& msg);  // 新增：/clock话题回调
-    void updateTimelineDisplay();                                   // 新增：更新时间轴显示
-    void updateUI();
-    void resetManualCapture();  // 新增：重置手动捕获状态
-    ros::Time getCurrentTime(); // 新增：获取当前时间（考虑同步模式）
-    void initializeTimeline();  // 新增：初始化时间轴
-    void updateTimelinePosition(); // 新增：更新时间轴位置
-    double timestampToSliderValue(double timestamp); // 新增：时间戳转滑动条值
-    double sliderValueToTimestamp(int slider_value); // 新增：滑动条值转时间戳
-    void publishPlaybackCommand(const std::string& command); // 新增：发布播放控制命令
-    void checkRosbagStatus(); // 新增：检查rosbag状态
+    bool is_playing_;
+    double playback_speed_;
+    bool last_sim_paused_state_;
+    int user_operation_delay_;
 };
 
 // 自定义时间轴可视化Widget

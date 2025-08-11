@@ -8,6 +8,8 @@
 #include "pdp_log_editor/PdpLogAnnotation.h"
 #include <std_msgs/String.h>
 #include <rosgraph_msgs/Clock.h>
+#include <rosbag/bag.h>
+#include <rosbag/view.h>
 #include <QLabel>
 #include <QPushButton>
 #include <QVBoxLayout>
@@ -79,6 +81,10 @@ PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), cli
     layout->addWidget(reset_button_);
     layout->addWidget(publish_button_);
 
+    load_bag_info_button_ = new QPushButton("从Rosbag加载时间轴");
+    load_bag_info_button_->setStyleSheet("font-weight: bold; color: purple;");
+    layout->addWidget(load_bag_info_button_);
+
     save_button_ = new QPushButton("Save to JSON");
     load_button_ = new QPushButton("Load from JSON");
     manual_capture_button_ = new QPushButton("手动获取时间 (0/4)");
@@ -142,6 +148,7 @@ PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), cli
     connect(undo_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onUndo);
     connect(reset_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onReset);
     connect(publish_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onPublish);
+    connect(load_bag_info_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onLoadBagInfo);
     connect(save_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onSaveToJson);
     connect(load_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onLoadFromJson);
     connect(manual_capture_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onManualTimeCapture);
@@ -160,7 +167,7 @@ PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), cli
     // 初始化定时器
     timeline_update_timer_ = new QTimer(this);
     connect(timeline_update_timer_, &QTimer::timeout, this, &PdpLogEditorPanel::updateTimelineDisplay);
-    timeline_update_timer_->start(100); // 每100ms更新一次
+    timeline_update_timer_->start(33); // ~30Hz更新，使时间显示更平滑
     
     updateUI();
     initializeTimeline();
@@ -906,18 +913,16 @@ void PdpLogEditorPanel::onEndTimeChanged(double value) {
 
 // /clock话题回调 - 用于与rosbag同步
 void PdpLogEditorPanel::clockCallback(const rosgraph_msgs::Clock::ConstPtr& msg) {
-    double current_time = msg->clock.toSec();
-    
-    // 更新当前时间轴时间
-    current_timeline_time_ = current_time;
+    // 直接使用收到的时间，不进行任何计算
+    current_timeline_time_ = msg->clock.toSec();
     
     // 如果时间超出范围，动态调整时间轴范围
-    if (current_time > timeline_end_time_) {
-        timeline_end_time_ = current_time + 10.0; // 延长10秒
+    if (current_timeline_time_ > timeline_end_time_) {
+        timeline_end_time_ = current_timeline_time_ + 60.0; // 延长60秒缓冲区
         timeline_widget_->setTimeRange(timeline_start_time_, timeline_end_time_);
     }
-    if (current_time < timeline_start_time_) {
-        timeline_start_time_ = current_time - 10.0; // 提前10秒
+    if (current_timeline_time_ < timeline_start_time_) {
+        timeline_start_time_ = current_timeline_time_ - 10.0; // 提前10秒
         timeline_widget_->setTimeRange(timeline_start_time_, timeline_end_time_);
     }
 }
@@ -925,111 +930,83 @@ void PdpLogEditorPanel::clockCallback(const rosgraph_msgs::Clock::ConstPtr& msg)
 // 更新时间轴显示
 void PdpLogEditorPanel::updateTimelineDisplay() {
     // 更新当前时间显示
-    current_time_label_->setText(QString("当前时间: %1s").arg(current_timeline_time_, 0, 'f', 2));
+    current_time_label_->setText(QString("当前时间: %1s").arg(current_timeline_time_, 0, 'f', 3)); // 增加一位小数
     
     // 更新时间轴widget的当前时间
     timeline_widget_->setCurrentTime(current_timeline_time_);
     
     // 更新进度条位置（阻塞信号防止循环）
-    timeline_slider_->blockSignals(true);
-    int slider_pos = timestampToSliderValue(current_timeline_time_);
-    timeline_slider_->setValue(slider_pos);
-    timeline_slider_->blockSignals(false);
+    if (!timeline_slider_->isSliderDown()) { // 只有在用户没有拖动时才更新
+        timeline_slider_->blockSignals(true);
+        int slider_pos = timestampToSliderValue(current_timeline_time_);
+        timeline_slider_->setValue(slider_pos);
+        timeline_slider_->blockSignals(false);
+    }
     
-    // 检测rosbag进程状态
-    static double last_update_time = current_timeline_time_;
+    // 简化状态检测逻辑，只在需要时执行
     static int update_counter = 0;
-    
     update_counter++;
-    if (update_counter % 10 == 0) { // 每1秒检查一次（100ms * 10）
-        // 检查rosbag进程是否存在
-        int rosbag_running = system("pgrep -f 'rosbag play' > /dev/null 2>&1");
-        
-        if (rosbag_running == 0) {
-            // rosbag进程存在，检查是否在播放
-            bool time_progressing = (current_timeline_time_ != last_update_time);
-            
-            if (time_progressing && !is_playing_) {
-                // 时间在进展但按钮显示为暂停状态，同步状态
-                is_playing_ = true;
-                play_pause_button_->setText("暂停");
-                play_pause_button_->setStyleSheet("font-weight: bold; color: orange;");
-            } else if (!time_progressing && is_playing_) {
-                // 时间没有进展但按钮显示为播放状态，可能是暂停了
-                // 不自动更改状态，让用户手动控制
-            }
-            
-            // 显示rosbag状态信息
-            if (update_counter % 50 == 0) { // 每5秒显示一次状态
-                if (time_progressing) {
-                    sync_time_button_->setText("Rosbag播放中");
-                    sync_time_button_->setStyleSheet("font-weight: bold; color: green;");
-                } else {
-                    sync_time_button_->setText("Rosbag已暂停");
-                    sync_time_button_->setStyleSheet("font-weight: bold; color: yellow;");
-                }
-            }
-        } else {
-            // rosbag进程不存在
-            if (is_playing_) {
-                is_playing_ = false;
-                play_pause_button_->setText("播放");
-                play_pause_button_->setStyleSheet("font-weight: bold; color: green;");
-                status_label_->setText("Rosbag进程已停止");
-            }
-            
-            // 提示用户启动rosbag
-            if (update_counter % 50 == 0) { // 每5秒提示一次
-                sync_time_button_->setText("未检测到Rosbag");
-                sync_time_button_->setStyleSheet("font-weight: bold; color: red;");
-            }
-        }
-        
-        last_update_time = current_timeline_time_;
+    if (update_counter % 30 == 0) { // 每秒检查一次 (33ms * 30)
+        checkRosbagStatus();
     }
 }
 
 // 播放/暂停控制
 void PdpLogEditorPanel::onPlayPause() {
-    // 首先检查rosbag进程是否存在
-    int rosbag_running = system("pgrep -f 'rosbag play' > /dev/null 2>&1");
+    ROS_INFO("onPlayPause: Button clicked. Current state: %s", is_playing_ ? "Playing" : "Paused");
+
+    // 寻找正在以交互模式(-i)运行的rosbag play进程的PID
+    // 这个命令更健壮，能准确找到带有 -i 参数的进程
+    const char* find_pid_cmd = "ps aux | grep 'rosbag play' | grep -- '-i' | grep -v grep | awk '{print $2}' | head -n 1";
     
-    if (rosbag_running != 0) {
-        // rosbag进程不存在
-        status_label_->setText("错误：未检测到rosbag play进程！请先启动: rosbag play -i test.bag --clock");
-        ROS_WARN("No rosbag play process found. Please start rosbag play first.");
+    FILE* pipe = popen(find_pid_cmd, "r");
+    if (!pipe) {
+        status_label_->setText("错误: 无法执行命令查找PID");
+        ROS_ERROR("onPlayPause: Failed to run command to find PID.");
         return;
     }
-    
-    // 检查是否是交互模式
-    int interactive_check = system("ps aux | grep 'rosbag play' | grep -q -- '-i'");
-    if (interactive_check != 0) {
-        status_label_->setText("错误：rosbag未运行在交互模式！请使用: rosbag play -i test.bag --clock");
-        ROS_WARN("Rosbag is not running in interactive mode. Use -i flag.");
+
+    char buffer[128];
+    std::string pid_str = "";
+    if (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        pid_str = buffer;
+        pid_str.erase(pid_str.find_last_not_of(" \n\r\t")+1);
+    }
+    pclose(pipe);
+
+    if (pid_str.empty()) {
+        status_label_->setText("错误: 未找到交互式rosbag进程!");
+        ROS_WARN("onPlayPause: No running 'rosbag play -i' process found. Please start rosbag with the -i flag.");
         return;
     }
+
+    ROS_INFO("onPlayPause: Found interactive rosbag PID: %s", pid_str.c_str());
+
+    // 构建向进程的stdin发送空格的命令
+    std::string toggle_cmd = "echo ' ' > /proc/" + pid_str + "/fd/0";
     
-    // 发送空格键切换播放/暂停状态
-    std::string toggle_cmd = "echo ' ' > /proc/$(pgrep -f 'rosbag play')/fd/0 2>/dev/null";
+    ROS_INFO("onPlayPause: Executing command: %s", toggle_cmd.c_str());
     int result = system(toggle_cmd.c_str());
-    
+
     if (result == 0) {
-        // 切换UI状态
+        // 立即切换UI状态以提供即时反馈
         is_playing_ = !is_playing_;
         if (is_playing_) {
             play_pause_button_->setText("暂停");
             play_pause_button_->setStyleSheet("font-weight: bold; color: orange;");
-            status_label_->setText("Rosbag已恢复播放");
-            ROS_INFO("Resumed rosbag playback");
+            status_label_->setText("命令已发送: 恢复播放");
+            ROS_INFO("onPlayPause: 'play' command sent successfully.");
         } else {
             play_pause_button_->setText("播放");
             play_pause_button_->setStyleSheet("font-weight: bold; color: green;");
-            status_label_->setText("Rosbag已暂停播放");
-            ROS_INFO("Paused rosbag playback");
+            status_label_->setText("命令已发送: 暂停播放");
+            ROS_INFO("onPlayPause: 'pause' command sent successfully.");
         }
+        // 延迟检查实际状态以进行同步
+        QTimer::singleShot(500, this, &PdpLogEditorPanel::verifyPlaybackState);
     } else {
-        status_label_->setText("错误：无法发送命令到rosbag进程！");
-        ROS_WARN("Failed to send command to rosbag process");
+        status_label_->setText("错误: 发送命令失败! (权限问题?)");
+        ROS_ERROR("onPlayPause: Failed to execute command. Result code: %d. Check permissions.", result);
     }
 }
 
@@ -1242,6 +1219,82 @@ void PdpLogEditorPanel::checkRosbagStatus() {
             status_label_->setText("Rosbag未运行");
             play_pause_button_->setEnabled(false);
         }
+    }
+}
+
+void PdpLogEditorPanel::verifyPlaybackState() {
+    // 通过检查时间变化来验证实际播放状态
+    static double last_time = 0.0;
+    double current_time = getCurrentTime().toSec();
+    
+    // 等待一小段时间再次检查
+    QTimer::singleShot(200, this, [this, current_time]() {
+        double new_time = getCurrentTime().toSec();
+        bool actually_playing = (abs(new_time - current_time) > 0.01); // 时间有变化说明在播放
+        
+        if (actually_playing != is_playing_) {
+            // UI状态与实际状态不一致，需要纠正
+            is_playing_ = actually_playing;
+            if (is_playing_) {
+                play_pause_button_->setText("暂停");
+                play_pause_button_->setStyleSheet("font-weight: bold; color: orange;");
+                status_label_->setText("状态同步：rosbag正在播放");
+            } else {
+                play_pause_button_->setText("播放");
+                play_pause_button_->setStyleSheet("font-weight: bold; color: green;");
+                status_label_->setText("状态同步：rosbag已暂停");
+            }
+            ROS_INFO("UI状态已与实际播放状态同步: %s", is_playing_ ? "播放中" : "已暂停");
+        } else {
+            // 状态一致，显示成功信息
+            if (is_playing_) {
+                status_label_->setText("播放控制成功 - rosbag正在播放");
+            } else {
+                status_label_->setText("暂停控制成功 - rosbag已暂停");
+            }
+        }
+    });
+}
+
+void PdpLogEditorPanel::onLoadBagInfo() {
+    QString file_path = QFileDialog::getOpenFileName(this,
+        "选择Rosbag文件",
+        QDir::homePath(),
+        "Rosbag文件 (*.bag)");
+
+    if (file_path.isEmpty()) {
+        return;
+    }
+
+    try {
+        rosbag::Bag bag;
+        bag.open(file_path.toStdString(), rosbag::bagmode::Read);
+
+        rosbag::View view(bag);
+        ros::Time start_time = view.getBeginTime();
+        ros::Time end_time = view.getEndTime();
+        
+        bag.close();
+
+        if (start_time.isZero() || end_time.isZero() || start_time > end_time) {
+             QMessageBox::warning(this, "错误", "无法读取有效的rosbag时间范围。");
+             return;
+        }
+
+        timeline_start_time_ = start_time.toSec();
+        timeline_end_time_ = end_time.toSec();
+        current_timeline_time_ = timeline_start_time_;
+
+        timeline_widget_->setTimeRange(timeline_start_time_, timeline_end_time_);
+        updateTimelinePosition();
+        updateTimelineDisplay();
+
+        status_label_->setText(QString("已加载Rosbag时间轴: %1s - %2s")
+            .arg(timeline_start_time_, 0, 'f', 2)
+            .arg(timeline_end_time_, 0, 'f', 2));
+
+    } catch (const rosbag::BagException& e) {
+        QMessageBox::critical(this, "Rosbag读取错误", QString("无法打开或解析rosbag文件: %1").arg(e.what()));
     }
 }
 
