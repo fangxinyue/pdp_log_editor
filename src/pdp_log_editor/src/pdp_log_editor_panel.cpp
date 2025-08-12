@@ -7,7 +7,8 @@
 #include <QDir>
 #include <nlohmann/json.hpp>
 #include "pdp_log_editor/PdpLogAnnotation.h"
-#include <std_msgs/String.h>        case 1: status_label_->setText("Please click to mark [takeover]"); break;#include <rosgraph_msgs/Clock.h>
+#include <std_msgs/String.h>
+#include <rosgraph_msgs/Clock.h>
 #include <rosbag/bag.h>
 #include <rosbag/view.h>
 #include <QLabel>
@@ -22,6 +23,8 @@
 #include <QMouseEvent>
 #include <QTimer>
 #include <ros/ros.h>
+#include <limits>
+#include <algorithm>
 
 
 namespace pdp_log_editor {
@@ -87,10 +90,6 @@ PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), cli
     layout->addWidget(undo_button_);
     layout->addWidget(reset_button_);
 
-    load_bag_info_button_ = new QPushButton("从Rosbag加载时间轴");
-    load_bag_info_button_->setStyleSheet("font-weight: bold; color: purple;");
-    layout->addWidget(load_bag_info_button_);
-
     save_button_ = new QPushButton("Save to JSON");
     load_button_ = new QPushButton("Load from JSON");
     manual_capture_button_ = new QPushButton("手动获取时间 (0/4)");
@@ -99,6 +98,10 @@ PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), cli
     layout->addWidget(save_button_);
     layout->addWidget(load_button_);
     layout->addWidget(manual_capture_button_);
+
+    // 新增：用于显示JSON路径的标签
+    json_path_label_ = new QLabel("case json path: ");
+    layout->addWidget(json_path_label_);
 
     // 添加时间轴部分
     auto* timeline_group = new QVBoxLayout();
@@ -126,7 +129,6 @@ PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), cli
 
     connect(undo_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onUndo);
     connect(reset_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onReset);
-    connect(load_bag_info_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onLoadBagInfo);
     connect(save_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onSaveToJson);
     connect(load_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onLoadFromJson);
     connect(manual_capture_button_, &QPushButton::clicked, this, &PdpLogEditorPanel::onManualTimeCapture);
@@ -402,6 +404,7 @@ void PdpLogEditorPanel::onSaveToJson() {
         out.close();
 
         status_label_->setText("标注已保存到JSON文件！");
+        json_path_label_->setText("case json path: " + file_path);
     } catch (const std::exception& e) {
         status_label_->setText(QString("保存失败: ") + e.what());
     }
@@ -470,7 +473,44 @@ void PdpLogEditorPanel::onLoadFromJson() {
         }
         
         updateUI();
-        status_label_->setText(QString("标注已从JSON文件加载！(%1/4 完成)").arg(clicks_done_));
+        
+        // 自动设置时间轴范围基于加载的时间戳
+        double min_time = std::numeric_limits<double>::max();
+        double max_time = std::numeric_limits<double>::lowest();
+        
+        // 收集所有非零时间戳
+        std::vector<double> times;
+        if (current_annotation_.scene_start_time.toSec() > 0) times.push_back(current_annotation_.scene_start_time.toSec());
+        if (current_annotation_.takeover_time.toSec() > 0) times.push_back(current_annotation_.takeover_time.toSec());
+        if (current_annotation_.event_time.toSec() > 0) times.push_back(current_annotation_.event_time.toSec());
+        if (current_annotation_.scene_end_time.toSec() > 0) times.push_back(current_annotation_.scene_end_time.toSec());
+        
+        if (!times.empty()) {
+            min_time = *std::min_element(times.begin(), times.end());
+            max_time = *std::max_element(times.begin(), times.end());
+            
+            // 添加一些缓冲区，让时间轴更方便使用
+            double buffer = (max_time - min_time) * 0.1; // 10%的缓冲区
+            if (buffer < 10.0) buffer = 10.0; // 最少10秒缓冲区
+            
+            timeline_start_time_ = min_time - buffer;
+            timeline_end_time_ = max_time + buffer;
+            current_timeline_time_ = min_time; // 设置当前时间为开始时间
+            
+            // 更新时间轴显示
+            timeline_widget_->setTimeRange(timeline_start_time_, timeline_end_time_);
+            updateTimelinePosition();
+            updateTimelineDisplay();
+            
+            status_label_->setText(QString("标注已从JSON文件加载！(%1/4 完成) 时间轴: %2s - %3s")
+                .arg(clicks_done_)
+                .arg(timeline_start_time_, 0, 'f', 2)
+                .arg(timeline_end_time_, 0, 'f', 2));
+        } else {
+            status_label_->setText(QString("标注已从JSON文件加载！(%1/4 完成)").arg(clicks_done_));
+        }
+        
+        json_path_label_->setText("case json path: " + file_path);
     } catch (const std::exception& e) {
         status_label_->setText(QString("加载失败: ") + e.what());
     }

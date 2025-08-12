@@ -80,11 +80,11 @@ private:
     QDoubleSpinBox* event_time_spinbox_;
     QDoubleSpinBox* end_time_spinbox_;
     QLineEdit* vehicle_config_edit_; // 新增
+    QLabel* json_path_label_;
     QPushButton* undo_button_;
     QPushButton* reset_button_;
     QPushButton* save_button_;
     QPushButton* load_button_;
-    QPushButton* load_bag_info_button_;
     QPushButton* manual_capture_button_;
     TimelineWidget* timeline_widget_;
     QSlider* timeline_slider_;
