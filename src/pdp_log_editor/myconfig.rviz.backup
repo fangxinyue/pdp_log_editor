@@ -62,6 +62,7 @@ Visualization Manager:
   Class: ""
   Displays:
     - Alpha: 1
+      Class: rviz_plugin_tutorials/Imu
       Color: 204; 51; 204
       Enabled: false
       History Length: 1
