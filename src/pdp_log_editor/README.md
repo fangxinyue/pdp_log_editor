@@ -1,16 +1,68 @@
 # PDP Log Editor - RViz Plugin for Driving Scenario Time Annotation
 
-## 项目概述
-PDP Log Editor是一个RViz插件，专门用于驾驶场景的时间标注。主要功能包括：
-- **4时间戳标注系统**: start_time → takeover → event → end_time
-- **手动时间捕获**: 按钮式时间戳获取
-- **3D场景交互**: 鼠标点击进行标注
-- **时间同步功能**: 支持ROS时间和Bag播放时间切换
-- **JSON文件I/O**: 保存和加载标注数据
+[![ROS](https://img.shields.io/badge/ROS-Noetic-blue.svg)](http://wiki.ros.org/noetic)
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
+[![License](https://img.shields.io/badge/license-MIT-green.svg)]()
 
-## 安装指南
+## 🎯 项目概述
 
-### 依赖项
+PDP Log Editor是一个专业的RViz插件，专门为自动驾驶场景时间标注而设计。提供直观的可视化界面和强大的时间管理功能。
+
+### ⭐ 核心特性
+- **🎬 智能时间轴**: 视频播放器风格的时间控制界面
+- **🎯 精确标注**: 支持4个关键时间点的微秒级标注
+- **🤖 自动化工作流**: 引导式操作，简化标注流程  
+- **💾 JSON管理**: 完整的配置文件加载和保存
+- **🔄 实时同步**: 与rosbag播放完全同步
+- **🎨 可视化界面**: 彩色时间标记和拖拽操作
+
+### 📊 功能模块
+| 模块 | 功能 | 说明 |
+|------|------|------|
+| **时间标注** | 4时间戳系统 | start_time → takeover → event → end_time |
+| **手动捕获** | 按钮操作 | 2次点击完成核心时间标注 |
+| **时间轴控制** | 可视化操作 | 拖拽进度条、调整时间标记 |
+| **JSON管理** | 文件I/O | 加载、编辑、保存配置文件 |
+| **实时同步** | rosbag集成 | 与/clock话题自动同步 |
+
+---
+
+## 🚀 快速开始
+
+### 📥 获取项目
+```bash
+cd ~/catkin_ws/src
+git clone http://gitlab.zhidaoauto.com/fangxinyue/pdp_log_editor.git
+```
+
+### 🔨 编译安装
+```bash
+cd ~/catkin_ws
+catkin_make
+source devel/setup.bash
+```
+
+### 🎮 启动使用
+```bash
+cd ~/catkin_ws/src/pdp_log_editor
+./launch_rviz.sh
+```
+
+**🎯 在RViz中**: `Panels` → `Add New Panel` → `pdp_log_editor/PdpLogEditorPanel`
+
+---
+
+## 📚 文档指南
+
+| 文档 | 内容 | 适用对象 |
+|------|------|----------|
+| **[快速入门指南.md](快速入门指南.md)** | 5分钟上手教程 | 新用户 |
+| **[完整用户说明书.md](完整用户说明书.md)** | 详细操作指南 | 所有用户 |
+| **[RViz启动问题解决说明.md](RViz启动问题解决说明.md)** | 故障排除 | 遇到问题时 |
+
+---
+
+## 🛠️ 系统要求
 - ROS Noetic
 - RViz
 - Qt5
