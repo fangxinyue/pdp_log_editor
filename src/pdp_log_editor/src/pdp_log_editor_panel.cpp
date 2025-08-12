@@ -92,7 +92,7 @@ PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), cli
 
     save_button_ = new QPushButton("Save to JSON");
     load_button_ = new QPushButton("Load from JSON");
-    manual_capture_button_ = new QPushButton("手动获取时间 (0/4)");
+    manual_capture_button_ = new QPushButton("手动获取时间 (0/2)");
     manual_capture_button_->setStyleSheet("font-weight: bold; color: green;");
     
     layout->addWidget(save_button_);
@@ -151,6 +151,9 @@ PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), cli
     updateUI();
     initializeTimeline();
     
+    // 设置初始按钮状态：只有Load from JSON可用
+    setInitialButtonStates();
+    
     // 新增：创建用于轮询/sim_pause参数的定时器
     param_check_timer_ = nh_.createTimer(ros::Duration(0.2), &PdpLogEditorPanel::checkSimPauseParam, this);
 }
@@ -177,25 +180,17 @@ void PdpLogEditorPanel::onUndo() {
         // 清除对应的时间戳
         switch (manual_clicks_done_) {
             case 0:
-                current_annotation_.scene_start_time = ros::Time(0);
-                status_label_->setText("Undo start_time");
-                break;
-            case 1:
                 current_annotation_.takeover_time = ros::Time(0);
                 status_label_->setText("Undo takeover");
                 break;
-            case 2:
+            case 1:
                 current_annotation_.event_time = ros::Time(0);
                 status_label_->setText("已撤销事件时间");
-                break;
-            case 3:
-                current_annotation_.scene_end_time = ros::Time(0);
-                status_label_->setText("已撤销场景结束时间");
                 break;
         }
         
         // 更新按钮状态
-        manual_capture_button_->setText(QString("手动获取时间 (%1/4)").arg(manual_clicks_done_));
+        manual_capture_button_->setText(QString("手动获取时间 (%1/2)").arg(manual_clicks_done_));
         manual_capture_button_->setStyleSheet("font-weight: bold; color: green;");
         
         // 同步点击计数
@@ -224,8 +219,8 @@ void PdpLogEditorPanel::onReset() {
 }
 
 void PdpLogEditorPanel::onManualTimeCapture() {
-    if (manual_clicks_done_ >= 4) {
-        status_label_->setText("已完成4次时间捕获，请先重置！");
+    if (manual_clicks_done_ >= 2) {
+        status_label_->setText("已完成2次时间捕获，请先重置！");
         return;
     }
     
@@ -246,32 +241,18 @@ void PdpLogEditorPanel::onManualTimeCapture() {
     // 根据点击次数设置对应的时间并更新相应的编辑框
     switch (manual_clicks_done_) {
         case 0:
-            current_annotation_.scene_start_time = current_time;
-            start_time_spinbox_->blockSignals(true);
-            start_time_spinbox_->setValue(time_value);
-            start_time_spinbox_->blockSignals(false);
-            status_label_->setText(QString("Captured start_time: %1s (%2)").arg(time_value, 0, 'f', 3).arg(time_source));
-            break;
-        case 1:
             current_annotation_.takeover_time = current_time;
             takeover_time_spinbox_->blockSignals(true);
             takeover_time_spinbox_->setValue(time_value);
             takeover_time_spinbox_->blockSignals(false);
             status_label_->setText(QString("Captured takeover: %1s (%2)").arg(time_value, 0, 'f', 3).arg(time_source));
             break;
-        case 2:
+        case 1:
             current_annotation_.event_time = current_time;
             event_time_spinbox_->blockSignals(true);
             event_time_spinbox_->setValue(time_value);
             event_time_spinbox_->blockSignals(false);
             status_label_->setText(QString("已捕获事件时间: %1s (%2)").arg(time_value, 0, 'f', 3).arg(time_source));
-            break;
-        case 3:
-            current_annotation_.scene_end_time = current_time;
-            end_time_spinbox_->blockSignals(true);
-            end_time_spinbox_->setValue(time_value);
-            end_time_spinbox_->blockSignals(false);
-            status_label_->setText(QString("已捕获场景结束时间: %1s (%2)").arg(time_value, 0, 'f', 3).arg(time_source));
             break;
     }
     
@@ -279,10 +260,10 @@ void PdpLogEditorPanel::onManualTimeCapture() {
     clicks_done_ = manual_clicks_done_;  // 同步点击计数
     
     // 更新按钮文本
-    manual_capture_button_->setText(QString("手动获取时间 (%1/4)").arg(manual_clicks_done_));
+    manual_capture_button_->setText(QString("手动获取时间 (%1/2)").arg(manual_clicks_done_));
     
-    if (manual_clicks_done_ >= 4) {
-        manual_capture_button_->setText("手动获取完成 (4/4)");
+    if (manual_clicks_done_ >= 2) {
+        manual_capture_button_->setText("手动获取完成 (2/2)");
         manual_capture_button_->setStyleSheet("font-weight: bold; color: blue;");
         status_label_->setText("手动时间捕获完成，可点击发布！");
     }
@@ -296,10 +277,8 @@ void PdpLogEditorPanel::onManualTimeCapture() {
 void PdpLogEditorPanel::clickUpdateCallback(const pdp_log_editor::PdpLogAnnotation::ConstPtr& msg) {
     current_annotation_ = *msg;
     clicks_done_ = 0;
-    if (msg->scene_start_time.toSec() > 0) clicks_done_++;
     if (msg->takeover_time.toSec() > 0) clicks_done_++;
     if (msg->event_time.toSec() > 0) clicks_done_++;
-    if (msg->scene_end_time.toSec() > 0) clicks_done_++;
     updateUI();
 }
 
@@ -322,11 +301,9 @@ void PdpLogEditorPanel::updateUI() {
     end_time_spinbox_->blockSignals(false);
 
     switch (clicks_done_) {
-        case 0: status_label_->setText("Please click to mark [start_time]"); break;
-        case 1: status_label_->setText("请点击以标注【控车时间】"); break;
-        case 2: status_label_->setText("请点击以标注【事件时间】"); break;
-        case 3: status_label_->setText("请点击以标注【场景结束时间】"); break;
-        case 4: status_label_->setText("标注已完成，可点击发布"); break;
+        case 0: status_label_->setText("请点击手动获取【控车时间】"); break;
+        case 1: status_label_->setText("请点击手动获取【事件时间】"); break;
+        case 2: status_label_->setText("手动时间捕获完成，可编辑或保存"); break;
         default: break;
     }
     
@@ -405,6 +382,10 @@ void PdpLogEditorPanel::onSaveToJson() {
 
         status_label_->setText("标注已保存到JSON文件！");
         json_path_label_->setText("case json path: " + file_path);
+        
+        // 更新UI状态，确保按钮等界面元素状态正确
+        updateUI();
+        
     } catch (const std::exception& e) {
         status_label_->setText(QString("保存失败: ") + e.what());
     }
@@ -455,24 +436,25 @@ void PdpLogEditorPanel::onLoadFromJson() {
             vehicle_config_edit_->setText(QString::fromStdString(j["vehicle_config"]));
         }
 
-        // 计算已完成的点击次数
+        // 计算已完成的点击次数（只计算takeover和event）
         clicks_done_ = 0;
         manual_clicks_done_ = 0;
-        if (current_annotation_.scene_start_time.toSec() > 0) { clicks_done_++; manual_clicks_done_++; }
         if (current_annotation_.takeover_time.toSec() > 0) { clicks_done_++; manual_clicks_done_++; }
         if (current_annotation_.event_time.toSec() > 0) { clicks_done_++; manual_clicks_done_++; }
-        if (current_annotation_.scene_end_time.toSec() > 0) { clicks_done_++; manual_clicks_done_++; }
         
         // 更新手动捕获按钮状态
-        if (manual_clicks_done_ >= 4) {
-            manual_capture_button_->setText("手动获取完成 (4/4)");
+        if (manual_clicks_done_ >= 2) {
+            manual_capture_button_->setText("手动获取完成 (2/2)");
             manual_capture_button_->setStyleSheet("font-weight: bold; color: blue;");
         } else {
-            manual_capture_button_->setText(QString("手动获取时间 (%1/4)").arg(manual_clicks_done_));
+            manual_capture_button_->setText(QString("手动获取时间 (%1/2)").arg(manual_clicks_done_));
             manual_capture_button_->setStyleSheet("font-weight: bold; color: green;");
         }
         
         updateUI();
+        
+        // 启用所有按钮和编辑框
+        enableAllButtons();
         
         // 自动设置时间轴范围基于加载的时间戳
         double min_time = std::numeric_limits<double>::max();
@@ -502,12 +484,12 @@ void PdpLogEditorPanel::onLoadFromJson() {
             updateTimelinePosition();
             updateTimelineDisplay();
             
-            status_label_->setText(QString("标注已从JSON文件加载！(%1/4 完成) 时间轴: %2s - %3s")
+            status_label_->setText(QString("标注已从JSON文件加载！(%1/2 完成) 时间轴: %2s - %3s")
                 .arg(clicks_done_)
                 .arg(timeline_start_time_, 0, 'f', 2)
                 .arg(timeline_end_time_, 0, 'f', 2));
         } else {
-            status_label_->setText(QString("标注已从JSON文件加载！(%1/4 完成)").arg(clicks_done_));
+            status_label_->setText(QString("标注已从JSON文件加载！(%1/2 完成)").arg(clicks_done_));
         }
         
         json_path_label_->setText("case json path: " + file_path);
@@ -518,14 +500,12 @@ void PdpLogEditorPanel::onLoadFromJson() {
 
 void PdpLogEditorPanel::resetManualCapture() {
     manual_clicks_done_ = 0;
-    manual_capture_button_->setText("手动获取时间 (0/4)");
+    manual_capture_button_->setText("手动获取时间 (0/2)");
     manual_capture_button_->setStyleSheet("font-weight: bold; color: green;");
     
-    // 清除所有手动捕获的时间
-    current_annotation_.scene_start_time = ros::Time(0);
+    // 清除手动捕获的时间（保留start_time和end_time）
     current_annotation_.takeover_time = ros::Time(0);
     current_annotation_.event_time = ros::Time(0);
-    current_annotation_.scene_end_time = ros::Time(0);
     
     clicks_done_ = 0;
     updateUI();
@@ -966,6 +946,43 @@ void PdpLogEditorPanel::toggleRosbagPlayback(bool pause) {
     } else {
         ROS_ERROR("Failed to send command to rosbag process. Result: %d", result);
     }
+}
+
+void PdpLogEditorPanel::setInitialButtonStates() {
+    // 只有Load from JSON按钮可用，其他按钮禁用
+    load_button_->setEnabled(true);
+    save_button_->setEnabled(false);
+    manual_capture_button_->setEnabled(false);
+    undo_button_->setEnabled(false);
+    reset_button_->setEnabled(false);
+    
+    // 时间编辑框也禁用
+    start_time_spinbox_->setEnabled(false);
+    takeover_time_spinbox_->setEnabled(false);
+    event_time_spinbox_->setEnabled(false);
+    end_time_spinbox_->setEnabled(false);
+    vehicle_config_edit_->setEnabled(false);
+    
+    // 更新状态提示
+    status_label_->setText("请先点击【Load from JSON】加载配置文件");
+    status_label_->setStyleSheet("font-weight: bold; color: orange;");
+}
+
+void PdpLogEditorPanel::enableAllButtons() {
+    // 启用所有按钮和编辑框
+    save_button_->setEnabled(true);
+    manual_capture_button_->setEnabled(true);
+    undo_button_->setEnabled(true);
+    reset_button_->setEnabled(true);
+    
+    start_time_spinbox_->setEnabled(true);
+    takeover_time_spinbox_->setEnabled(true);
+    event_time_spinbox_->setEnabled(true);
+    end_time_spinbox_->setEnabled(true);
+    vehicle_config_edit_->setEnabled(true);
+    
+    // 恢复正常状态提示样式
+    status_label_->setStyleSheet("font-weight: bold; color: blue;");
 }
 
 } // namespace pdp_log_editor

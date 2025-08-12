@@ -63,6 +63,8 @@ private:
     void updateTimelinePosition();
     double timestampToSliderValue(double timestamp);
     double sliderValueToTimestamp(int slider_value);
+    void setInitialButtonStates();
+    void enableAllButtons();
 
     // ROS 通信
     ros::NodeHandle nh_;
