@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- PDP Log Editor RViz Launch File -->
+  
+  <!-- 启动RViz并加载配置文件 -->
+  <node name="rviz" pkg="rviz" type="rviz" output="screen" 
+        args="-d $(find pdp_log_editor)/myconfig.rviz" />
+  
+  <!-- 可选：如果需要发布静态变换 -->
+  <!-- <node pkg="tf2_ros" type="static_transform_publisher" name="map_to_base_link"
+        args="0 0 0 0 0 0 map base_link" /> -->
+        
+</launch>
