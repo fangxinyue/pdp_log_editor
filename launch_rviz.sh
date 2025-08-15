@@ -7,8 +7,10 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # 设置ROS环境
-source /opt/ros/noetic/setup.bash
-source "$SCRIPT_DIR/../../devel/setup.bash"
+# 这一行是关键：它将解压后的pdp_log_editor目录动态添加到ROS包路径中
+# 这样，无论用户将压缩包解压到何处，ROS都能找到这个插件。
+export ROS_PACKAGE_PATH="${SCRIPT_DIR}/pdp_log_editor:${ROS_PACKAGE_PATH}"
+# source "$SCRIPT_DIR/../../devel/setup.bash" # 已废弃：此行为开发环境专用，在免编译包中无效
 
 # 启动RViz并加载配置文件
 # 检查并启动roscore
@@ -36,4 +38,4 @@ echo "4. 点击时间同步按钮切换ROS/Bag时间模式"
 echo ""
 
 # 启动RViz并过滤所有常见的错误和警告信息
-rviz -d "$SCRIPT_DIR/myconfig.rviz" 2>&1 | grep -v -E "TF_REPEATED_DATA|redundant timestamp|ignoring data with redundant timestamp|PluginlibFactory.*failed to load|SEVERE WARNING.*namespace collision|Error in XmlRpcClient::writeRequest|拒绝连接|write error"
+rviz -d "$SCRIPT_DIR/pdp_log_editor/myconfig.rviz" 2>&1 | grep -v -E "TF_REPEATED_DATA|redundant timestamp|ignoring data with redundant timestamp|PluginlibFactory.*failed to load|SEVERE WARNING.*namespace collision|Error in XmlRpcClient::writeRequest|拒绝连接|write error"
