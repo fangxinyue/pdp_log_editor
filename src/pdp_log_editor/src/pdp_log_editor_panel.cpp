@@ -146,7 +146,7 @@ PdpLogEditorPanel::PdpLogEditorPanel(QWidget* parent) : rviz::Panel(parent), cli
     // 初始化定时器
     timeline_update_timer_ = new QTimer(this);
     connect(timeline_update_timer_, &QTimer::timeout, this, &PdpLogEditorPanel::updateTimelineDisplay);
-    timeline_update_timer_->start(33); // ~30Hz更新，使时间显示更平滑
+    timeline_update_timer_->start(100); // 优化：降低到10Hz (100ms) 更新，显著降低CPU负载
     
     updateUI();
     initializeTimeline();
@@ -169,7 +169,8 @@ void PdpLogEditorPanel::onInitialize() {
     click_event_pub_ = nh.advertise<pdp_log_editor::PdpLogAnnotation>("/pdp_log_editor/internal/click_update", 1);  // 新增：用于手动时间发布
     
     // 订阅/clock话题用于同步时间轴
-    clock_sub_ = nh.subscribe("/clock", 10, &PdpLogEditorPanel::clockCallback, this);
+    // 优化：减小队列大小为1，因为我们只关心最新的时间，旧的可以直接丢弃
+    clock_sub_ = nh.subscribe("/clock", 1, &PdpLogEditorPanel::clockCallback, this);
 }
 
 void PdpLogEditorPanel::onUndo() {
@@ -823,22 +824,25 @@ void PdpLogEditorPanel::onEndTimeChanged(double value) {
 
 // /clock话题回调 - 用于与rosbag同步
 void PdpLogEditorPanel::clockCallback(const rosgraph_msgs::Clock::ConstPtr& msg) {
-    // 直接使用收到的时间，不进行任何计算
+    // 优化：此回调函数现在只更新内部时间变量，不做任何UI操作。
+    // 所有的UI更新都由低频率的QTimer (updateTimelineDisplay) 统一处理。
+    // 这将高频的ROS消息处理与低频的UI渲染解耦，是解决卡顿的关键。
     current_timeline_time_ = msg->clock.toSec();
-    
+}
+
+// 更新时间轴显示
+void PdpLogEditorPanel::updateTimelineDisplay() {
     // 如果时间超出范围，动态调整时间轴范围
     if (current_timeline_time_ > timeline_end_time_) {
         timeline_end_time_ = current_timeline_time_ + 60.0; // 延长60秒缓冲区
         timeline_widget_->setTimeRange(timeline_start_time_, timeline_end_time_);
     }
-    if (current_timeline_time_ < timeline_start_time_) {
+    if (current_timeline_time_ < timeline_start_time_ && current_timeline_time_ > 0) { // 避免重置为0
         timeline_start_time_ = current_timeline_time_ - 10.0; // 提前10秒
+        if (timeline_start_time_ < 0) timeline_start_time_ = 0;
         timeline_widget_->setTimeRange(timeline_start_time_, timeline_end_time_);
     }
-}
 
-// 更新时间轴显示
-void PdpLogEditorPanel::updateTimelineDisplay() {
     // 更新当前时间显示
     current_time_label_->setText(QString("当前时间: %1s").arg(current_timeline_time_, 0, 'f', 3)); // 增加一位小数
     
