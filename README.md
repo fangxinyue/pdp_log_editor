@@ -168,6 +168,7 @@ JSON
 4.2 字段说明
 
 此插件主要关注并编辑以下字段：
+
 <img width="643" height="249" alt="2025-08-25 10-20-11 的屏幕截图" src="https://github.com/user-attachments/assets/5974d4f6-aa49-407f-9f4d-a68318c4bbbd" />
 
 
