@@ -41,6 +41,10 @@ tar -xzvf ~/下载/pdp_log_editor_release.tar.gz
 
 3. 步骤二：启动与加载插件
 <img width="733" height="417" alt="图片" src="https://github.com/user-attachments/assets/952b610b-9e67-4101-a1ef-7816c0f1c4d0" />
+<img width="822" height="309" alt="图片" src="https://github.com/user-attachments/assets/811f6e8c-6eae-4521-be8d-b353af7f528e" />
+<img width="733" height="480" alt="图片" src="https://github.com/user-attachments/assets/6dd23507-e899-4574-96be-6ff4d83bde37" />
+
+
 
 [方新悦 > PDPC logsim场景编辑 RViz 插件用户说明书 > image2025-8-11_14-50-41.png] [方新悦 > PDPC logsim场景编辑 RViz 插件用户说明书 > image2025-8-15_11-59-23.png] [方新悦 > PDPC logsim场景编辑 RViz 插件用户说明书 > image2025-8-11_14-48-2.png]
 3.1 第一个终端启动roscore
@@ -63,7 +67,8 @@ chmod +x launch_rviz.sh
 ./launch_rviz.sh
 
 
-[方新悦 > PDPC logsim场景编辑 RViz 插件用户说明书 > 2025-08-12 17-06-38 的屏幕截图.png]
+<img width="748" height="1019" alt="图片" src="https://github.com/user-attachments/assets/0a355d55-3490-4556-adc4-75df5b360558" />
+
 另：手动启动方式
 
 您也可以手动启动 RViz。加载环境并使用预设配置启动RViz
@@ -88,7 +93,8 @@ rosbag play test.bag --clock -l
 
 3.4 核心操作：时间标注
 
-[方新悦 > PDPC logsim场景编辑 RViz 插件用户说明书 > image2025-8-13_10-20-41.png]
+<img width="1831" height="1043" alt="图片" src="https://github.com/user-attachments/assets/8ba15ba1-2b79-46b0-9662-6dc61dfd34d0" />
+
 
 演示视频：
 
@@ -162,72 +168,9 @@ JSON
 4.2 字段说明
 
 此插件主要关注并编辑以下字段：
+<img width="643" height="249" alt="2025-08-25 10-20-11 的屏幕截图" src="https://github.com/user-attachments/assets/5974d4f6-aa49-407f-9f4d-a68318c4bbbd" />
 
-字段路径
-	
 
-颜色标识
-	
-
-类型
-	
-
-说明
-
-case_time.start_time
-	
-
-浅绿色
-	
-
-Number
-	
-
-场景的起始时间戳
-
-case_time.takeover
-	
-
-浅黄色
-	
-
-Number
-	
-
-人工接管或关键控制事件的时间戳
-
-case_time.event
-	
-
-浅橙色
-	
-
-Number
-	
-
-需要特别关注的关键事件时间戳
-
-case_time.end_time
-	
-
-浅红色
-	
-
-Number
-	
-
-场景的结束时间戳
-
-vehicle_config
-	
-
-浅灰色
-	
-
-String
-	
-
-车辆的唯一标识或配置信息
 
 注意：插件会完整保留并回写 case_info 等其他字段，仅对上述字段进行修改。
 5. 使用技巧与最佳实践
