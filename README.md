@@ -40,6 +40,7 @@ tar -xzvf ~/下载/pdp_log_editor_release.tar.gz
 
 
 3. 步骤二：启动与加载插件
+<img width="733" height="417" alt="图片" src="https://github.com/user-attachments/assets/952b610b-9e67-4101-a1ef-7816c0f1c4d0" />
 
 [方新悦 > PDPC logsim场景编辑 RViz 插件用户说明书 > image2025-8-11_14-50-41.png] [方新悦 > PDPC logsim场景编辑 RViz 插件用户说明书 > image2025-8-15_11-59-23.png] [方新悦 > PDPC logsim场景编辑 RViz 插件用户说明书 > image2025-8-11_14-48-2.png]
 3.1 第一个终端启动roscore
